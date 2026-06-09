@@ -11,20 +11,19 @@ from . import detect as targets
 TEXT_RESTORE_TIMER_INTERVAL = 0.02
 
 
-def capture_composition_start(target: object) -> models.TextCompositionStart | None:
-    """Remember the Text Editor cursor before the IME starts composing."""
+def capture_composition_start(target: object) -> models.TextImeSession | None:
+    """Start a Text Editor IME session at the current cursor."""
     if not models.is_text_editor_target(target) or target.text is None:
         return None
     body = safe_ops.maybe_get_text_body(target.text)
     if body is None:
         return None
     try:
-        return models.TextCompositionStart(
+        return runtime.state.text_ime_session.begin(
             text=target.text,
             body=body,
             line=int(target.text.current_line_index),
             column=int(target.text.current_character),
-            session_id=runtime.state.begin_text_session(),
         )
     except (AttributeError, ReferenceError, RuntimeError):
         return None
@@ -46,7 +45,8 @@ def capture_restore_snapshot(target: object) -> models.TextRestoreSnapshot | Non
             body=body,
             line=int(target.text.current_line_index),
             column=int(target.text.current_character),
-            session_id=active_text_session_id(target.text),
+            session=active_text_session(target.text),
+            commit_generation=runtime.state.text_ime_session.commit_generation,
         )
     except (AttributeError, ReferenceError, RuntimeError):
         return None
@@ -158,31 +158,32 @@ def cancel_restore_guard() -> None:
     safe_ops.unregister_timer(restore_text_after_ime_edit_key)
 
 
-def active_text_session_id(text_data: object) -> int:
+def active_text_session(text_data: object) -> models.TextImeSession | None:
     """Find the session currently allowed to guard this Text datablock."""
-    start = runtime.state.composition_start
-    if isinstance(start, models.TextCompositionStart) and start.text == text_data:
-        return start.session_id
-    return 0
+    session = runtime.state.text_ime_session.active_for_text(text_data)
+    if isinstance(session, models.TextImeSession):
+        return session
+    return None
 
 
 def restore_snapshot_is_current(snapshot: models.TextRestoreSnapshot) -> bool:
     """Reject stale or committed guards before they can roll text back."""
-    if runtime.state.text_session_is_committed(snapshot.session_id):
+    if snapshot.commit_generation != runtime.state.text_ime_session.commit_generation:
         return False
-    if snapshot.session_id == 0 and runtime.state.text_committed_session_id:
+    if (
+        isinstance(snapshot.session, models.TextImeSession)
+        and snapshot.session.committed
+    ):
         return False
-    current_session_id = (
-        active_text_session_id(snapshot.text) or runtime.state.text_session_id
-    )
-    if snapshot.session_id and snapshot.session_id != current_session_id:
+    current_session = active_text_session(snapshot.text)
+    if current_session is not None and snapshot.session is not current_session:
         return False
     return True
 
 
 def clear_matching_restore_guard(
     text_data: object,
-    session_id: int,
+    session: object,
     *,
     unregister_timer: bool = True,
 ) -> None:
@@ -191,7 +192,7 @@ def clear_matching_restore_guard(
     if (
         isinstance(guard, models.TextRestoreSnapshot)
         and guard.text == text_data
-        and guard.session_id in {0, session_id}
+        and (guard.session is None or guard.session is session)
     ):
         runtime.state.text_restore_guard = None
         runtime.state.text_restore_timer_registered = False
@@ -200,57 +201,57 @@ def clear_matching_restore_guard(
 
 
 def mark_composition_committed(
-    composition_start: object,
+    text_session: object,
     *,
     unregister_timer: bool = True,
 ) -> None:
     """Make stale preedit guards harmless as soon as IME confirms text."""
-    if not isinstance(composition_start, models.TextCompositionStart):
+    if not isinstance(text_session, models.TextImeSession):
         return
-    runtime.state.mark_text_session_committed(composition_start.session_id)
+    runtime.state.text_ime_session.mark_committed(text_session)
     clear_matching_restore_guard(
-        composition_start.text,
-        composition_start.session_id,
+        text_session.text,
+        text_session,
         unregister_timer=unregister_timer,
     )
 
 
 def prepare_composition_commit(
     target: object,
-    composition_start: object,
+    text_session: object,
 ) -> bool:
     """Restore the pre-composition baseline before inserting the IME result."""
     if (
         not models.is_text_editor_target(target)
-        or not isinstance(composition_start, models.TextCompositionStart)
-        or target.text != composition_start.text
+        or not isinstance(text_session, models.TextImeSession)
+        or not text_session.owns_text(target.text)
     ):
         return False
 
-    mark_composition_committed(composition_start)
+    mark_composition_committed(text_session)
     current_body = safe_ops.maybe_get_text_body(target.text)
     if current_body is None:
         return False
-    if current_body != composition_start.body:
+    if current_body != text_session.body:
         return restore_text_body(
             target.text,
-            composition_start.body,
-            composition_start.line,
-            composition_start.column,
+            text_session.body,
+            text_session.line,
+            text_session.column,
         )
     return set_text_cursor(
         target.text,
-        composition_start.line,
-        composition_start.column,
+        text_session.line,
+        text_session.column,
     )
 
 
-def has_leaked_confirm_space(target: object, composition_start: object) -> bool:
+def has_leaked_confirm_space(target: object, text_session: object) -> bool:
     """Detect the classic leak: confirm Space also became real text."""
     if (
         not models.is_text_editor_target(target)
-        or not isinstance(composition_start, models.TextCompositionStart)
-        or target.text != composition_start.text
+        or not isinstance(text_session, models.TextImeSession)
+        or not text_session.owns_text(target.text)
     ):
         return False
 
@@ -258,8 +259,8 @@ def has_leaked_confirm_space(target: object, composition_start: object) -> bool:
         line = int(target.text.current_line_index)
         column = int(target.text.current_character)
         if (
-            line != composition_start.line
-            or column != composition_start.column + 1
+            line != text_session.line
+            or column != text_session.column + 1
             or column <= 0
         ):
             return False
@@ -269,9 +270,12 @@ def has_leaked_confirm_space(target: object, composition_start: object) -> bool:
         return False
 
 
-def delete_confirm_space_before_insert(target: object, composition_start: object) -> bool:
+def delete_confirm_space_before_insert(
+    target: object,
+    text_session: object,
+) -> bool:
     """Remove the leaked Space while the Text operator context is active."""
-    if not has_leaked_confirm_space(target, composition_start):
+    if not has_leaked_confirm_space(target, text_session):
         return False
     if not bpy.ops.text.delete.poll():
         return False
@@ -279,7 +283,7 @@ def delete_confirm_space_before_insert(target: object, composition_start: object
     return True
 
 
-def insert(text: str, target: object, composition_start: object = None) -> bool:
+def insert(text: str, target: object, text_session: object = None) -> bool:
     """Commit IME text through Blender's Text Editor operator."""
     if not models.is_text_editor_target(target):
         return False
@@ -298,13 +302,13 @@ def insert(text: str, target: object, composition_start: object = None) -> bool:
         space_data=context["space"],
     ):
         if bpy.ops.text.insert.poll():
-            if not prepare_composition_commit(target, composition_start):
-                delete_confirm_space_before_insert(target, composition_start)
+            if not prepare_composition_commit(target, text_session):
+                delete_confirm_space_before_insert(target, text_session)
             bpy.ops.text.insert(text=text)
             return True
 
     try:
-        prepare_composition_commit(target, composition_start)
+        prepare_composition_commit(target, text_session)
         target.text.write(text)
         return True
     except (AttributeError, ReferenceError, RuntimeError):

@@ -3,6 +3,8 @@
 from collections import deque
 from dataclasses import dataclass, field
 
+from . import models
+
 
 @dataclass
 class ImeActivityState:
@@ -73,6 +75,55 @@ class InputScopeState:
 
 
 @dataclass
+class TextImeSessionState:
+    """Current Text Editor IME session and commit generation."""
+
+    next_id: int = 0
+    current: models.TextImeSession | None = None
+    commit_generation: int = 0
+
+    def clear(self) -> None:
+        """Forget all Text Editor IME session bookkeeping."""
+        self.next_id = 0
+        self.current = None
+        self.commit_generation = 0
+
+    def begin(
+        self,
+        *,
+        text: object,
+        body: str,
+        line: int,
+        column: int,
+    ) -> models.TextImeSession:
+        """Create and remember a new Text Editor IME session."""
+        self.next_id += 1
+        self.current = models.TextImeSession(
+            text=text,
+            body=body,
+            line=line,
+            column=column,
+            session_id=self.next_id,
+        )
+        return self.current
+
+    def active_for_text(self, text_data: object) -> models.TextImeSession | None:
+        """Return the active session only when it owns the Text datablock."""
+        if self.current is not None and self.current.owns_text(text_data):
+            return self.current
+        return None
+
+    def mark_committed(self, session: object) -> None:
+        """Record a legal IME commit and invalidate older restore snapshots."""
+        if isinstance(session, models.TextImeSession) and session.mark_committed():
+            self.commit_generation += 1
+
+    def end_current(self) -> None:
+        """Release the active composition without losing snapshot history."""
+        self.current = None
+
+
+@dataclass
 class RuntimeState:
     """The bridge's per-session state."""
 
@@ -89,14 +140,14 @@ class RuntimeState:
 
     text_restore_timer_registered: bool = False
     text_restore_guard: object = None
-    text_session_id: int = 0
-    text_committed_session_id: int = 0
+    text_ime_session: TextImeSessionState = field(
+        default_factory=TextImeSessionState
+    )
     text_draw_handler: object = None
     last_preposition_at: float = 0.0
 
     active_target: object = None
     composition_target: object = None
-    composition_start: object = None
 
     ime_activity: ImeActivityState = field(default_factory=ImeActivityState)
     space_suppression: SpaceSuppressionState = field(
@@ -113,12 +164,10 @@ class RuntimeState:
         self.auto_arm_timer_registered = False
         self.text_restore_timer_registered = False
         self.text_restore_guard = None
-        self.text_session_id = 0
-        self.text_committed_session_id = 0
+        self.text_ime_session.clear()
         self.last_preposition_at = 0.0
         self.active_target = None
         self.composition_target = None
-        self.composition_start = None
         self.ime_activity.clear()
         self.space_suppression.clear()
         self.font_result_dedup.clear()
@@ -128,20 +177,6 @@ class RuntimeState:
         """Drop queued commits after shutdown or failed setup."""
         self.pending_inserts.clear()
         self.insert_timer_registered = False
-
-    def begin_text_session(self) -> int:
-        """Create a monotonic Text Editor IME session id."""
-        self.text_session_id += 1
-        return self.text_session_id
-
-    def mark_text_session_committed(self, session_id: int) -> None:
-        """Remember that a Text Editor IME session produced a real result."""
-        if session_id > 0:
-            self.text_committed_session_id = session_id
-
-    def text_session_is_committed(self, session_id: int) -> bool:
-        """Check whether old restore guards must stay away from this session."""
-        return session_id > 0 and self.text_committed_session_id == session_id
 
 
 # One runtime object is enough here. Blender's add-on reload is the lifecycle

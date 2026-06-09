@@ -45,7 +45,7 @@ def clear_bridge_target_state() -> None:
     """Forget only the target state owned by IMEBridge."""
     target_state.clear_active_target()
     runtime.state.composition_target = None
-    runtime.state.composition_start = None
+    runtime.state.text_ime_session.end_current()
     ime_guards.clear_ime_activity()
     ime_guards.clear_space_suppression()
     runtime.state.font_result_dedup.clear()
@@ -336,9 +336,11 @@ def handle_ime_start_composition(hwnd: object) -> None:
         runtime.state.active_target,
         bpy.context,
     )
-    runtime.state.composition_start = target_state.capture_composition_start(
+    text_session = target_state.capture_composition_start(
         runtime.state.composition_target
     )
+    if text_session is None:
+        runtime.state.text_ime_session.end_current()
     ime_guards.mark_ime_activity(hwnd)
     ime_context.update_ime_candidate_position(
         hwnd=hwnd,
@@ -355,11 +357,11 @@ def queue_ime_result(hwnd: object, result: str | None) -> None:
 
     target = resolve_input_target_from_state()
     if models.is_text_editor_target(target):
-        composition_start = runtime.state.composition_start
-        text_target.mark_composition_committed(composition_start)
+        text_session = runtime.state.text_ime_session.active_for_text(target.text)
+        text_target.mark_composition_committed(text_session)
     else:
-        composition_start = None
-    insert_queue.queue(result, target, composition_start)
+        text_session = None
+    insert_queue.queue(result, target, text_session)
 
     if models.is_font_edit_target(target):
         font_commit.mark_recent_font_result(target, result)
@@ -386,7 +388,7 @@ def handle_ime_composition(win: object, hwnd: object, l_value: int) -> None:
 def handle_ime_end_composition() -> None:
     """Release composition state once the IME is done."""
     runtime.state.composition_target = None
-    runtime.state.composition_start = None
+    runtime.state.text_ime_session.end_current()
     ime_guards.clear_ime_activity()
 
 

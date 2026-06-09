@@ -42,15 +42,27 @@ class FontEditTarget:
         return TARGET_FONT_EDIT
 
 
-@dataclass(frozen=True)
-class TextCompositionStart:
-    """Text Editor cursor captured before an IME composition mutates the buffer."""
+@dataclass
+class TextImeSession:
+    """One Text Editor IME composition session."""
 
     text: object
     body: str
     line: int
     column: int
     session_id: int
+    committed: bool = False
+
+    def owns_text(self, text_data: object) -> bool:
+        """Check whether this session still belongs to the given Text datablock."""
+        return self.text == text_data
+
+    def mark_committed(self) -> bool:
+        """Mark the session as committed, returning whether this changed state."""
+        if self.committed:
+            return False
+        self.committed = True
+        return True
 
 
 @dataclass(frozen=True)
@@ -62,7 +74,8 @@ class TextRestoreSnapshot:
     body: str
     line: int
     column: int
-    session_id: int
+    session: object = None
+    commit_generation: int = 0
 
 
 @dataclass(frozen=True)
@@ -71,7 +84,7 @@ class PendingInsert:
 
     text: str
     target: object
-    composition_start: object = None
+    text_session: object = None
 
 
 @dataclass(frozen=True)

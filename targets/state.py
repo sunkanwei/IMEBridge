@@ -16,7 +16,7 @@ def clear_active_target() -> None:
 
 
 def capture_composition_start(target: object) -> object | None:
-    """Only Text Editor needs a start snapshot; Font input is guarded earlier."""
+    """Only Text Editor needs an IME session; Font input is guarded earlier."""
     if models.is_text_editor_target(target):
         return text_target.capture_composition_start(target)
     return None

@@ -24,7 +24,7 @@ def flush() -> None:
                 inserted = text_target.insert(
                     item.text,
                     item.target,
-                    item.composition_start,
+                    item.text_session,
                 )
             elif models.is_font_edit_target(item.target):
                 inserted = font_target.insert(item.text, item.target)
@@ -41,7 +41,7 @@ def flush() -> None:
     return None
 
 
-def queue(text: str, target: object, composition_start: object = None) -> None:
+def queue(text: str, target: object, text_session: object = None) -> None:
     """Defer an IME commit until Blender operators are safe to call."""
     if not text:
         return
@@ -51,7 +51,7 @@ def queue(text: str, target: object, composition_start: object = None) -> None:
         return
 
     runtime.state.pending_inserts.append(
-        models.PendingInsert(text, target, composition_start)
+        models.PendingInsert(text, target, text_session)
     )
     if not runtime.state.insert_timer_registered:
         runtime.state.insert_timer_registered = True
