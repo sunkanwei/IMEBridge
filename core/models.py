@@ -47,8 +47,10 @@ class TextCompositionStart:
     """Text Editor cursor captured before an IME composition mutates the buffer."""
 
     text: object
+    body: str
     line: int
     column: int
+    session_id: int
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,7 @@ class TextRestoreSnapshot:
     body: str
     line: int
     column: int
+    session_id: int
 
 
 @dataclass(frozen=True)

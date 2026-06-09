@@ -16,6 +16,7 @@ from ..preferences import config
 from ..targets import detect as targets
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
+from ..targets import text as text_target
 from ..win32 import api as win32_api
 
 
@@ -355,6 +356,7 @@ def queue_ime_result(hwnd: object, result: str | None) -> None:
     target = resolve_input_target_from_state()
     if models.is_text_editor_target(target):
         composition_start = runtime.state.composition_start
+        text_target.mark_composition_committed(composition_start)
     else:
         composition_start = None
     insert_queue.queue(result, target, composition_start)

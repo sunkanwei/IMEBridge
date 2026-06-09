@@ -89,6 +89,8 @@ class RuntimeState:
 
     text_restore_timer_registered: bool = False
     text_restore_guard: object = None
+    text_session_id: int = 0
+    text_committed_session_id: int = 0
     text_draw_handler: object = None
     last_preposition_at: float = 0.0
 
@@ -111,6 +113,8 @@ class RuntimeState:
         self.auto_arm_timer_registered = False
         self.text_restore_timer_registered = False
         self.text_restore_guard = None
+        self.text_session_id = 0
+        self.text_committed_session_id = 0
         self.last_preposition_at = 0.0
         self.active_target = None
         self.composition_target = None
@@ -124,6 +128,20 @@ class RuntimeState:
         """Drop queued commits after shutdown or failed setup."""
         self.pending_inserts.clear()
         self.insert_timer_registered = False
+
+    def begin_text_session(self) -> int:
+        """Create a monotonic Text Editor IME session id."""
+        self.text_session_id += 1
+        return self.text_session_id
+
+    def mark_text_session_committed(self, session_id: int) -> None:
+        """Remember that a Text Editor IME session produced a real result."""
+        if session_id > 0:
+            self.text_committed_session_id = session_id
+
+    def text_session_is_committed(self, session_id: int) -> bool:
+        """Check whether old restore guards must stay away from this session."""
+        return session_id > 0 and self.text_committed_session_id == session_id
 
 
 # One runtime object is enough here. Blender's add-on reload is the lifecycle
