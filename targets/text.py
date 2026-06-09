@@ -64,8 +64,17 @@ def set_text_cursor(text_data: object, line: int, column: int) -> bool:
     """Move the cursor defensively across editor and datablock changes."""
     try:
         line, column = clamped_text_cursor(text_data, line, column)
-        text_data.current_line_index = line
-        text_data.current_character = column
+        select_set = getattr(text_data, "select_set", None)
+        if callable(select_set):
+            select_set(line, column, line, column)
+        else:
+            text_data.current_line_index = line
+            text_data.current_character = column
+            try:
+                text_data.select_end_line_index = line
+                text_data.select_end_character = column
+            except (AttributeError, RuntimeError):
+                pass
         return True
     except (AttributeError, IndexError, ReferenceError, RuntimeError, ValueError):
         return False
@@ -96,6 +105,71 @@ def restore_text_body(
     except (AttributeError, ReferenceError, RuntimeError):
         return False
     return set_text_cursor(text_data, line, column)
+
+
+def text_position_to_offset(body: str, line: int, column: int) -> int:
+    """Convert a Text cursor position into an offset inside ``as_string``."""
+    lines = body.split("\n")
+    if not lines:
+        return 0
+
+    line = max(0, min(int(line), len(lines) - 1))
+    column = max(0, min(int(column), len(lines[line])))
+    offset = 0
+    for index in range(line):
+        offset += len(lines[index]) + 1
+    return offset + column
+
+
+def text_offset_to_position(body: str, offset: int) -> tuple[int, int]:
+    """Convert an ``as_string`` offset back to Text line and column indices."""
+    offset = max(0, min(int(offset), len(body)))
+    line = body.count("\n", 0, offset)
+    line_start = body.rfind("\n", 0, offset) + 1
+    return line, offset - line_start
+
+
+def text_cursor_offsets(text_data: object, body: str) -> tuple[int, int] | None:
+    """Return the sorted replacement range represented by the Text selection."""
+    try:
+        select_line = getattr(
+            text_data,
+            "select_end_line_index",
+            text_data.current_line_index,
+        )
+        select_column = getattr(
+            text_data,
+            "select_end_character",
+            text_data.current_character,
+        )
+        current = text_position_to_offset(
+            body,
+            int(text_data.current_line_index),
+            int(text_data.current_character),
+        )
+        selected = text_position_to_offset(
+            body,
+            int(select_line),
+            int(select_column),
+        )
+    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+        return None
+    return min(current, selected), max(current, selected)
+
+
+def insert_text_body_at_cursor(text_data: object, text: str) -> bool:
+    """Insert text by rebuilding the body so Blender's Text.write cannot trim it."""
+    body = safe_ops.maybe_get_text_body(text_data)
+    if body is None:
+        return False
+
+    offsets = text_cursor_offsets(text_data, body)
+    if offsets is None:
+        return False
+    start, end = offsets
+    new_body = body[:start] + text + body[end:]
+    line, column = text_offset_to_position(new_body, start + len(text))
+    return restore_text_body(text_data, new_body, line, column)
 
 
 def restore_text_cursor(snapshot: models.TextRestoreSnapshot) -> bool:
@@ -309,7 +383,6 @@ def insert(text: str, target: object, text_session: object = None) -> bool:
 
     try:
         prepare_composition_commit(target, text_session)
-        target.text.write(text)
-        return True
+        return insert_text_body_at_cursor(target.text, text)
     except (AttributeError, ReferenceError, RuntimeError):
         return False
