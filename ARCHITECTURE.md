@@ -28,6 +28,8 @@ Blender shortcuts remain direct input. Neutral UI clears IMEBridge targets and
 undoes any plugin-driven close, but does not guess at Blender's native text
 widgets. Shortcuts that open Blender's own text UI, such as search, rename, and
 Text Editor find, are treated as neutral before Blender handles them.
+Known add-on surfaces such as NexusUI are also classified as neutral before the
+shortcut-canvas rule when their own visible UI layers are hit.
 
 The Text Editor path records the composition start position, protects the text
 buffer from IME editing keys, removes leaked confirmation spaces, and inserts

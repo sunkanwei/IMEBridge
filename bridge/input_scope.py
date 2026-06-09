@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import bpy
 
+from . import nexus_whitelist
 from ..targets import detect as targets
 from ..win32 import api as win32_api
 
@@ -32,6 +33,12 @@ class AreaHit:
     area: object
     region: object
     space: object
+    client_x: int = 0
+    client_y: int = 0
+    window_x: int = 0
+    window_y: int = 0
+    area_x: int = 0
+    area_y: int = 0
 
 
 @dataclass(frozen=True)
@@ -80,7 +87,18 @@ def area_hit_at_client_point(
             if not (region.x <= client_x < region.x + region.width):
                 continue
             if region.y <= blender_y < region.y + region.height:
-                return AreaHit(window, area, region, area.spaces.active)
+                return AreaHit(
+                    window,
+                    area,
+                    region,
+                    area.spaces.active,
+                    client_x=client_x,
+                    client_y=client_y,
+                    window_x=client_x,
+                    window_y=blender_y,
+                    area_x=client_x - region.x,
+                    area_y=blender_y - region.y,
+                )
     return None
 
 
@@ -138,6 +156,9 @@ def classify_hit(hwnd: object, hit: AreaHit | None) -> InputScope:
             target=target,
             hit=hit,
         )
+
+    if nexus_whitelist.is_nexusui_surface_hit(hit):
+        return InputScope(SCOPE_NEUTRAL, hwnd=hwnd, hit=hit)
 
     area_type = getattr(hit.area, "type", None)
     if area_type in SHORTCUT_SURFACE_AREAS:
