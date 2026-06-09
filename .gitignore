@@ -1,0 +1,17 @@
+# Python runtime cache
+__pycache__/
+*.py[cod]
+
+# Blender backup files
+*.blend[0-9]
+
+# Local build artifacts
+*.zip
+dist/
+build/
+
+# Local editor and OS files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

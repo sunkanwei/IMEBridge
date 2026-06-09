@@ -1,0 +1,105 @@
+"""Open and close the window IME without touching the system input layout."""
+
+from ..core import runtime
+from ..win32 import api as win32_api
+
+
+def hwnd_key(hwnd: object) -> int:
+    """Use a stable integer key for ctypes HWND values."""
+    return win32_api.ptr_value(hwnd)
+
+
+def remember_open_status(win: object, hwnd: object, himc: object) -> None:
+    """Keep the user's state so a plugin-driven close can be undone later."""
+    key = hwnd_key(hwnd)
+    if key in runtime.state.input_scope.managed_open_status:
+        return
+    was_open = bool(win.imm32.ImmGetOpenStatus(himc))
+    runtime.state.input_scope.managed_open_status[key] = runtime.ManagedImeState(
+        hwnd=hwnd,
+        was_open=was_open,
+    )
+
+
+def cancel_composition(win: object, himc: object) -> None:
+    """Ask the IME to drop preedit text and hide candidates before closing."""
+    win.imm32.ImmNotifyIME(
+        himc,
+        win.NI_COMPOSITIONSTR,
+        win.CPS_CANCEL,
+        0,
+    )
+    win.imm32.ImmNotifyIME(
+        himc,
+        win.NI_CLOSECANDIDATE,
+        0,
+        0,
+    )
+
+
+def is_open(win: object, hwnd: object) -> bool:
+    """Read the current window IME open flag and release the HIMC promptly."""
+    if not hwnd:
+        return False
+
+    himc = win.imm32.ImmGetContext(hwnd)
+    if not himc:
+        return False
+
+    try:
+        return bool(win.imm32.ImmGetOpenStatus(himc))
+    finally:
+        win.imm32.ImmReleaseContext(hwnd, himc)
+
+
+def close_for_shortcut_surface(hwnd: object) -> bool:
+    """Temporarily put this Blender window into direct-input mode."""
+    win = win32_api.ensure_windows()
+    if win is None or not hwnd:
+        return False
+
+    himc = win.imm32.ImmGetContext(hwnd)
+    if not himc:
+        return False
+
+    try:
+        remember_open_status(win, hwnd, himc)
+        cancel_composition(win, himc)
+        return bool(win.imm32.ImmSetOpenStatus(himc, False))
+    finally:
+        win.imm32.ImmReleaseContext(hwnd, himc)
+
+
+def restore_if_managed(hwnd: object) -> bool:
+    """Restore only IME states that IMEBridge changed itself."""
+    win = win32_api.ensure_windows()
+    key = hwnd_key(hwnd)
+    record = runtime.state.input_scope.managed_open_status.pop(key, None)
+    if win is None or record is None:
+        return False
+    if not record.was_open:
+        return True
+
+    himc = win.imm32.ImmGetContext(record.hwnd)
+    if not himc:
+        runtime.state.input_scope.managed_open_status[key] = record
+        return False
+
+    try:
+        restored = bool(win.imm32.ImmSetOpenStatus(himc, True))
+        if not restored:
+            runtime.state.input_scope.managed_open_status[key] = record
+        return restored
+    finally:
+        win.imm32.ImmReleaseContext(record.hwnd, himc)
+
+
+def restore_all_managed() -> int:
+    """Best-effort cleanup for reloads and add-on shutdown."""
+    restored = 0
+    for key, record in list(runtime.state.input_scope.managed_open_status.items()):
+        if restore_if_managed(record.hwnd):
+            restored += 1
+        else:
+            runtime.state.input_scope.managed_open_status.pop(key, None)
+    return restored

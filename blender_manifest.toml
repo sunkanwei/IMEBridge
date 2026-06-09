@@ -1,0 +1,52 @@
+schema_version = "1.0.0"
+
+id = "IMEBridge"
+version = "0.1.0"
+name = "IMEBridge"
+tagline = "Bridge Windows IME input into Blender text editing"
+maintainer = "Sunkanwei"
+website = "https://space.bilibili.com/28036907"
+type = "add-on"
+blender_version_min = "5.0.0"
+blender_version_max = "5.3.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+tags = ["System", "Text Editor", "User Interface"]
+platforms = ["windows-x64"]
+
+[build]
+# README.md, build_extension.bat, and .git/ are intentionally omitted.
+paths = [
+  "__init__.py",
+  "bridge/__init__.py",
+  "bridge/arming.py",
+  "bridge/font_commit.py",
+  "bridge/hook.py",
+  "bridge/ime_context.py",
+  "bridge/ime_guards.py",
+  "bridge/ime_switch.py",
+  "bridge/input_scope.py",
+  "bridge/message_router.py",
+  "bridge/window_hook.py",
+  "core/__init__.py",
+  "core/message_result.py",
+  "core/models.py",
+  "core/runtime.py",
+  "core/safe_ops.py",
+  "preferences/__init__.py",
+  "preferences/config.py",
+  "preferences/i18n.py",
+  "targets/__init__.py",
+  "targets/caret.py",
+  "targets/detect.py",
+  "targets/font.py",
+  "targets/queue.py",
+  "targets/state.py",
+  "targets/text.py",
+  "win32/__init__.py",
+  "win32/api.py",
+  "ARCHITECTURE.md",
+]
