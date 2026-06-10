@@ -181,6 +181,7 @@ class ObjC:
         self.insert_text = self.sel("insertText:replacementRange:")
         self.input_context = self.sel("inputContext")
         self.string = self.sel("string")
+        self.unmark_text = self.sel("unmarkText")
         self.utf8_string = self.sel("UTF8String")
 
     def cls(self, name: str) -> int:
@@ -408,23 +409,27 @@ class MacOSApi:
         chars: int,
         replacement_range: NSRange,
     ) -> None:
-        """Mirror committed IME text, then forward to Blender's implementation."""
+        """Handle committed IME text and safely clear OS marked state."""
+        handled = False
         try:
             text = self.text_from_objc_string(chars)
             handler = self._commit_handler
             if text and callable(handler):
-                handler(text)
-            self._call_original_insert_text(obj, selector, chars, replacement_range)
+                handled = bool(handler(text))
         except Exception:
+            pass
+
+        if not handled:
             try:
-                self._call_original_insert_text(
-                    obj,
-                    selector,
-                    chars,
-                    replacement_range,
-                )
+                self._call_original_insert_text(obj, selector, chars, replacement_range)
             except Exception:
-                return
+                pass
+        else:
+            try:
+                if self.objc.responds(obj, self.objc.unmark_text):
+                    self.objc.send_void(obj, self.objc.unmark_text)
+            except Exception:
+                pass
 
     def install_insert_text_hook(
         self,
