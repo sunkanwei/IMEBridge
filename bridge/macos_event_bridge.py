@@ -7,6 +7,7 @@ import time
 import bpy
 
 from . import ime_context
+from . import input_scope
 from ..core import models
 from ..core import runtime
 from ..core import safe_ops
@@ -97,24 +98,25 @@ def activate_target(target: object, hwnd: object = None) -> bool:
 
 def is_ime_allowed() -> bool:
     """Return whether the current active Blender area should allow IME input."""
-    context = bpy.context
-    area = getattr(context, "area", None)
-    if area is None:
+    api = platform_api.ensure()
+    if api is None:
         return True
 
-    if area.type in {
-        "VIEW_3D",
-        "NODE_EDITOR",
-        "DOPESHEET_EDITOR",
-        "GRAPH_EDITOR",
-        "NLA_EDITOR",
-        "SEQUENCE_EDITOR",
-        "IMAGE_EDITOR",
-        "CLIP_EDITOR",
-    }:
-        if area.type == "VIEW_3D":
-            if targets.font_object_for_ime(context, require_edit=True) is not None:
-                return True
+    pt = getattr(api, "mouse_location", None)
+    if not callable(pt):
+        return True
+
+    loc = pt()
+    if loc is None:
+        return True
+
+    window = getattr(bpy.context, "window", None)
+    hit = input_scope.area_hit_at_window_point(loc.x, loc.y, window)
+    if hit is None:
+        return True
+
+    scope = input_scope.classify_hit(None, hit)
+    if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
         return False
 
     return True
@@ -123,20 +125,25 @@ def is_ime_allowed() -> bool:
 def target_from_context(context: object = None) -> object | None:
     """Use Blender's current context as the active macOS input target."""
     context = context or bpy.context
-    area = getattr(context, "area", None)
-    if area is not None and area.type in {
-        "VIEW_3D",
-        "NODE_EDITOR",
-        "DOPESHEET_EDITOR",
-        "GRAPH_EDITOR",
-        "NLA_EDITOR",
-        "SEQUENCE_EDITOR",
-        "IMAGE_EDITOR",
-        "CLIP_EDITOR",
-    }:
-        if area.type == "VIEW_3D":
-            return targets.find_font_edit_target(context)
+    api = platform_api.ensure()
+    if api is None:
         return None
+
+    pt = getattr(api, "mouse_location", None)
+    if callable(pt):
+        loc = pt()
+        if loc is not None:
+            hit = input_scope.area_hit_at_window_point(loc.x, loc.y, context.window)
+            if hit is not None:
+                scope = input_scope.classify_hit(None, hit)
+                if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
+                    if hit.area.type == "VIEW_3D":
+                        return targets.find_font_edit_target(context)
+                    return None
+                elif scope.kind == input_scope.SCOPE_ENABLED_TARGET:
+                    target = input_scope.enabled_target_from_hit(hit)
+                    if targets.is_usable_input_target(target):
+                        return target
 
     target = targets.make_input_target_from_context(context)
     if target is not None:
@@ -203,23 +210,28 @@ def _target_poll_timer() -> float | None:
         _TIMER_REGISTERED = False
         return None
 
-    context = bpy.context
-    area = getattr(context, "area", None)
-    is_shortcut = area is not None and area.type in {
-        "VIEW_3D",
-        "NODE_EDITOR",
-        "DOPESHEET_EDITOR",
-        "GRAPH_EDITOR",
-        "NLA_EDITOR",
-        "SEQUENCE_EDITOR",
-        "IMAGE_EDITOR",
-        "CLIP_EDITOR",
-    }
+    api = platform_api.ensure()
+    if api is None:
+        return TARGET_POLL_INTERVAL
 
+    hwnd = active_hwnd()
+    context = bpy.context
+
+    is_shortcut = False
     is_editing_3d_text = False
-    if is_shortcut and area.type == "VIEW_3D":
-        if targets.font_object_for_ime(context, require_edit=True) is not None:
-            is_editing_3d_text = True
+
+    pt = getattr(api, "mouse_location", None)
+    if callable(pt):
+        loc = pt()
+        if loc is not None:
+            hit = input_scope.area_hit_at_window_point(loc.x, loc.y, context.window)
+            if hit is not None:
+                scope = input_scope.classify_hit(None, hit)
+                if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
+                    is_shortcut = True
+                    if hit.area.type == "VIEW_3D":
+                        if targets.font_object_for_ime(context, require_edit=True) is not None:
+                            is_editing_3d_text = True
 
     if is_shortcut and not is_editing_3d_text:
         # Force clear active target and end IME on shortcut surfaces
@@ -227,7 +239,6 @@ def _target_poll_timer() -> float | None:
         end_ime()
         return TARGET_POLL_INTERVAL
 
-    hwnd = active_hwnd()
     target = target_from_context(context)
     if targets.is_usable_input_target(target):
         activate_target(target, hwnd)

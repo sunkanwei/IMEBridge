@@ -74,6 +74,15 @@ class NSRange(ctypes.Structure):
     ]
 
 
+class NSPoint(ctypes.Structure):
+    """Objective-C NSPoint/CGPoint representing 2D coordinates."""
+
+    _fields_ = [
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+    ]
+
+
 class ObjC:
     """Typed Objective-C runtime calls used by the Cocoa IME bridge."""
 
@@ -121,6 +130,11 @@ class ObjC:
         )(("objc_msgSend", self.lib))
         self.send_double = ctypes.CFUNCTYPE(
             ctypes.c_double,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        )(("objc_msgSend", self.lib))
+        self.send_point = ctypes.CFUNCTYPE(
+            NSPoint,
             ctypes.c_void_p,
             ctypes.c_void_p,
         )(("objc_msgSend", self.lib))
@@ -241,6 +255,23 @@ class MacOSApi:
         if scale <= 0.0:
             return 1.0
         return scale
+
+    def mouse_location(self, window: int = 0) -> Point | None:
+        """Return the mouse location relative to the bottom-left corner of the window in pixels."""
+        window = ptr_value(window) or self.active_ns_window()
+        if not window:
+            return None
+        
+        sel_mouse = self.objc.sel("mouseLocationOutsideOfEventStream")
+        if not self.objc.responds(window, sel_mouse):
+            return None
+
+        try:
+            pt = self.objc.send_point(window, sel_mouse)
+            scale = self.backing_scale_factor(window)
+            return Point(int(round(pt.x * scale)), int(round(pt.y * scale)))
+        except (OSError, TypeError, ValueError):
+            return None
 
     def _first_ime_view(self, view: int, depth: int = 0) -> int:
         """Find Blender's Cocoa view without assuming the immediate hierarchy."""
