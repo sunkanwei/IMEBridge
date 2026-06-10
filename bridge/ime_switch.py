@@ -1,5 +1,8 @@
 """Open and close the window IME without touching the system input layout."""
 
+import ctypes
+from ctypes import wintypes
+
 from ..core import runtime
 from ..win32 import api as win32_api
 
@@ -50,6 +53,41 @@ def is_open(win: object, hwnd: object) -> bool:
         return bool(win.imm32.ImmGetOpenStatus(himc))
     finally:
         win.imm32.ImmReleaseContext(hwnd, himc)
+
+
+def conversion_status(win: object, hwnd: object) -> tuple[int, int] | None:
+    """Read the current IME conversion and sentence modes."""
+    if not hwnd:
+        return None
+
+    himc = win.imm32.ImmGetContext(hwnd)
+    if not himc:
+        return None
+
+    try:
+        conversion = wintypes.DWORD()
+        sentence = wintypes.DWORD()
+        if not win.imm32.ImmGetConversionStatus(
+            himc,
+            ctypes.byref(conversion),
+            ctypes.byref(sentence),
+        ):
+            return None
+        return int(conversion.value), int(sentence.value)
+    finally:
+        win.imm32.ImmReleaseContext(hwnd, himc)
+
+
+def is_native_conversion_mode(win: object, hwnd: object) -> bool | None:
+    """Return whether the IME is in native text mode instead of alphanumeric."""
+    status = conversion_status(win, hwnd)
+    if status is None:
+        return None
+
+    conversion, _sentence = status
+    if conversion & win.IME_CMODE_NOCONVERSION:
+        return False
+    return bool(conversion & win.IME_CMODE_NATIVE)
 
 
 def close_for_shortcut_surface(hwnd: object) -> bool:

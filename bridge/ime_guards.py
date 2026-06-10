@@ -112,6 +112,17 @@ def is_preedit_char(value: int) -> bool:
     return 0x20 <= value <= 0x7E
 
 
+def ime_can_accept_preedit_text(win: object, hwnd: object) -> bool:
+    """Allow ASCII preedit guards only in an IME conversion mode that needs them."""
+    if not ime_switch.is_open(win, hwnd):
+        return False
+
+    native_mode = ime_switch.is_native_conversion_mode(win, hwnd)
+    if native_mode is None:
+        return True
+    return native_mode
+
+
 def ime_edit_guard_vkeys(win: object) -> set[int]:
     """Keys that should edit the IME preedit string, not Blender's buffer."""
     return {
@@ -176,7 +187,7 @@ def handle_preedit_text_guard(
     """Stop pinyin preedit keystrokes from becoming real Blender text."""
     if not is_keyboard_message(win, msg_value):
         return None
-    if modifier_shortcut_is_down(win) or not ime_switch.is_open(win, hwnd):
+    if modifier_shortcut_is_down(win) or not ime_can_accept_preedit_text(win, hwnd):
         return None
 
     target = active_target_for_ime_guard()

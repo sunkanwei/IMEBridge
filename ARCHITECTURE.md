@@ -36,7 +36,9 @@ protects the text buffer from IME editing keys, removes leaked confirmation
 spaces, and commits the IME result as a small text transaction. The transaction
 first tries Blender's Text Editor operator, then verifies the expected body and
 falls back to rebuilding the Text datablock when the operator cannot preserve
-the saved replacement semantics.
+the saved replacement semantics. Printable ASCII guards are limited to native
+IME conversion mode, so alphanumeric mode in Microsoft IME remains normal
+English input instead of being treated as leaked pinyin.
 
 The 3D Text path intentionally uses a different strategy. It suppresses the
 confirmation space at the Win32 message layer before Blender's native font edit

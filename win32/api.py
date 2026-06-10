@@ -139,6 +139,9 @@ class Win32Api:
     GCS_COMPSTR = 0x0008
     GCS_RESULTSTR = 0x0800
 
+    IME_CMODE_NATIVE = 0x0001
+    IME_CMODE_NOCONVERSION = 0x0100
+
     IMR_QUERYCHARPOSITION = 0x0006
     NI_CLOSECANDIDATE = 0x0011
     NI_COMPOSITIONSTR = 0x0015
@@ -289,6 +292,15 @@ class Win32Api:
         self._declare(
             self.imm32.ImmGetOpenStatus,
             [wintypes.HANDLE],
+            wintypes.BOOL,
+        )
+        self._declare(
+            self.imm32.ImmGetConversionStatus,
+            [
+                wintypes.HANDLE,
+                ctypes.POINTER(wintypes.DWORD),
+                ctypes.POINTER(wintypes.DWORD),
+            ],
             wintypes.BOOL,
         )
         self._declare(
