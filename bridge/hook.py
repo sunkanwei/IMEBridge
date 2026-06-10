@@ -169,6 +169,5 @@ def stop_hooks() -> int:
 
     runtime.clear_input_state()
     runtime.clear_pending_inserts()
-    ime_guards.clear_ime_activity()
     ime_guards.clear_space_suppression()
     return stopped

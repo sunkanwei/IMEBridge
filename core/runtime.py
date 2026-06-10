@@ -6,18 +6,6 @@ from dataclasses import dataclass, field
 from . import models
 
 
-@dataclass
-class ImeActivityState:
-    """Recent IME activity, kept only long enough to guard leaked keys."""
-
-    hwnd: int = 0
-    until: float = 0.0
-
-    def clear(self) -> None:
-        """Forget the active IME window."""
-        self.hwnd = 0
-        self.until = 0.0
-
 
 @dataclass
 class SpaceSuppressionState:
@@ -28,19 +16,6 @@ class SpaceSuppressionState:
 
     def clear(self) -> None:
         """Drop any pending space suppression window."""
-        self.hwnd = 0
-        self.until = 0.0
-
-
-@dataclass
-class SpaceConfirmState:
-    """A recent Space key sequence that belongs to IME confirmation."""
-
-    hwnd: int = 0
-    until: float = 0.0
-
-    def clear(self) -> None:
-        """Forget the recent Space confirmation marker."""
         self.hwnd = 0
         self.until = 0.0
 
@@ -177,11 +152,9 @@ class RuntimeState:
     active_target: object = None
     composition_target: object = None
 
-    ime_activity: ImeActivityState = field(default_factory=ImeActivityState)
     space_suppression: SpaceSuppressionState = field(
         default_factory=SpaceSuppressionState
     )
-    space_confirm: SpaceConfirmState = field(default_factory=SpaceConfirmState)
     font_result_dedup: FontResultDedupState = field(
         default_factory=FontResultDedupState
     )
@@ -197,9 +170,7 @@ class RuntimeState:
         self.last_preposition_at = 0.0
         self.active_target = None
         self.composition_target = None
-        self.ime_activity.clear()
         self.space_suppression.clear()
-        self.space_confirm.clear()
         self.font_result_dedup.clear()
         self.input_scope.clear()
 

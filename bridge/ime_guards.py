@@ -12,8 +12,6 @@ from ..platforms import native as platform_api
 
 
 SPACE_SUPPRESSION_SECONDS = 0.75
-SPACE_CONFIRM_SECONDS = 1.25
-IME_ACTIVITY_SECONDS = 2.0
 
 
 CompositionReader = Callable[[object, object, int], str | None]
@@ -24,33 +22,8 @@ def clear_space_suppression() -> None:
     runtime.state.space_suppression.clear()
 
 
-def clear_space_confirm() -> None:
-    """Forget any recent Space confirmation marker."""
-    runtime.state.space_confirm.clear()
-
-
-def mark_space_confirm(hwnd: object) -> None:
-    """Remember that the current IME commit was confirmed by Space."""
-    runtime.state.space_confirm.hwnd = platform_api.ptr_value(hwnd)
-    runtime.state.space_confirm.until = time.monotonic() + SPACE_CONFIRM_SECONDS
-
-
-def consume_space_confirm(hwnd: object) -> bool:
-    """Use one recent Space confirmation as permission to swallow one space."""
-    state = runtime.state.space_confirm
-    if not state.hwnd or state.hwnd != platform_api.ptr_value(hwnd):
-        return False
-    if time.monotonic() > state.until:
-        state.clear()
-        return False
-    state.clear()
-    return True
-
-
 def mark_space_suppression(hwnd: object) -> bool:
     """Give the commit path a short grace period to eat Blender's stray space."""
-    if not consume_space_confirm(hwnd):
-        return False
     runtime.state.space_suppression.hwnd = platform_api.ptr_value(hwnd)
     runtime.state.space_suppression.until = time.monotonic() + SPACE_SUPPRESSION_SECONDS
     return True
@@ -83,28 +56,6 @@ def handle_space_suppression(
         return 0
 
     return None
-
-
-def mark_ime_activity(hwnd: object, seconds: float = IME_ACTIVITY_SECONDS) -> None:
-    """Keep guards awake briefly after composition flags disappear."""
-    runtime.state.ime_activity.hwnd = platform_api.ptr_value(hwnd)
-    runtime.state.ime_activity.until = time.monotonic() + seconds
-
-
-def clear_ime_activity() -> None:
-    """Forget the recent IME activity marker."""
-    runtime.state.ime_activity.clear()
-
-
-def has_recent_ime_activity(hwnd: object) -> bool:
-    """Some IMEs clear composition state before their final key messages arrive."""
-    state = runtime.state.ime_activity
-    if not state.hwnd or state.hwnd != platform_api.ptr_value(hwnd):
-        return False
-    if time.monotonic() > state.until:
-        clear_ime_activity()
-        return False
-    return True
 
 
 def is_keyboard_message(win: object, msg_value: int) -> bool:
@@ -180,10 +131,9 @@ def ime_is_composing(
     hwnd: object,
     comp_string_reader: CompositionReader,
 ) -> bool:
-    """Treat very recent IME traffic as still composing."""
+    """Return whether the IME is currently composing."""
     comp = comp_string_reader(win, hwnd, win.GCS_COMPSTR)
-    recent = has_recent_ime_activity(hwnd)
-    return bool(runtime.state.composition_target) or bool(comp) or recent
+    return bool(runtime.state.composition_target) or bool(comp)
 
 
 def ime_edit_guard_target(
@@ -198,7 +148,7 @@ def ime_edit_guard_target(
     return target
 
 
-def mark_space_confirm_if_needed(
+def preempt_space_suppression(
     win: object,
     hwnd: object,
     msg_value: int,
@@ -206,7 +156,7 @@ def mark_space_confirm_if_needed(
     lparam: object,
     comp_string_reader: CompositionReader,
 ) -> None:
-    """Track only Space keys that happen while an IME owns a bridge target."""
+    """Preemptively suppress trailing space chars when Space is pressed during IME composition."""
     is_space = False
     if msg_value == win.WM_INPUT:
         raw = platform_api.read_raw_keyboard(win, lparam)
@@ -217,7 +167,8 @@ def mark_space_confirm_if_needed(
     if not is_space:
         return
     if ime_edit_guard_target(win, hwnd, comp_string_reader) is not None:
-        mark_space_confirm(hwnd)
+        runtime.state.space_suppression.hwnd = platform_api.ptr_value(hwnd)
+        runtime.state.space_suppression.until = time.monotonic() + SPACE_SUPPRESSION_SECONDS
 
 
 def protect_text_target_from_ime_edit(target: object) -> None:
@@ -353,7 +304,7 @@ def handle_message_guards(
     comp_string_reader: CompositionReader,
 ) -> int | None:
     """Run the keyboard shields before normal IME dispatch."""
-    mark_space_confirm_if_needed(
+    preempt_space_suppression(
         win,
         hwnd,
         msg_value,

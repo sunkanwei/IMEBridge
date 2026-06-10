@@ -63,9 +63,7 @@ def clear_bridge_target_state() -> None:
     target_state.clear_active_target()
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
-    ime_guards.clear_ime_activity()
     ime_guards.clear_space_suppression()
-    ime_guards.clear_space_confirm()
     runtime.state.font_result_dedup.clear()
 
 
@@ -406,7 +404,6 @@ def handle_ime_start_composition(hwnd: object) -> None:
     )
     if text_session is None:
         runtime.state.text_ime_session.end_current()
-    ime_guards.mark_ime_activity(hwnd)
     ime_context.update_ime_candidate_position(
         hwnd=hwnd,
         target=runtime.state.composition_target,
@@ -444,7 +441,6 @@ def handle_ime_composition(win: object, hwnd: object, l_value: int) -> None:
     if not bridge_ime_allowed():
         return
 
-    ime_guards.mark_ime_activity(hwnd)
     if l_value & win.GCS_COMPSTR:
         ime_context.update_ime_candidate_position(
             hwnd=hwnd,
@@ -459,7 +455,6 @@ def handle_ime_end_composition(hwnd: object) -> None:
     """Release composition state once the IME is done."""
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
-    ime_guards.mark_ime_activity(hwnd)
 
 
 def dispatch_ime_message(
