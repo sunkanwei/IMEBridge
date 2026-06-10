@@ -95,9 +95,49 @@ def activate_target(target: object, hwnd: object = None) -> bool:
     return True
 
 
+def is_ime_allowed() -> bool:
+    """Return whether the current active Blender area should allow IME input."""
+    context = bpy.context
+    area = getattr(context, "area", None)
+    if area is None:
+        return True
+
+    if area.type in {
+        "VIEW_3D",
+        "NODE_EDITOR",
+        "DOPESHEET_EDITOR",
+        "GRAPH_EDITOR",
+        "NLA_EDITOR",
+        "SEQUENCE_EDITOR",
+        "IMAGE_EDITOR",
+        "CLIP_EDITOR",
+    }:
+        if area.type == "VIEW_3D":
+            if targets.font_object_for_ime(context, require_edit=True) is not None:
+                return True
+        return False
+
+    return True
+
+
 def target_from_context(context: object = None) -> object | None:
     """Use Blender's current context as the active macOS input target."""
     context = context or bpy.context
+    area = getattr(context, "area", None)
+    if area is not None and area.type in {
+        "VIEW_3D",
+        "NODE_EDITOR",
+        "DOPESHEET_EDITOR",
+        "GRAPH_EDITOR",
+        "NLA_EDITOR",
+        "SEQUENCE_EDITOR",
+        "IMAGE_EDITOR",
+        "CLIP_EDITOR",
+    }:
+        if area.type == "VIEW_3D":
+            return targets.find_font_edit_target(context)
+        return None
+
     target = targets.make_input_target_from_context(context)
     if target is not None:
         return target
@@ -163,8 +203,32 @@ def _target_poll_timer() -> float | None:
         _TIMER_REGISTERED = False
         return None
 
+    context = bpy.context
+    area = getattr(context, "area", None)
+    is_shortcut = area is not None and area.type in {
+        "VIEW_3D",
+        "NODE_EDITOR",
+        "DOPESHEET_EDITOR",
+        "GRAPH_EDITOR",
+        "NLA_EDITOR",
+        "SEQUENCE_EDITOR",
+        "IMAGE_EDITOR",
+        "CLIP_EDITOR",
+    }
+
+    is_editing_3d_text = False
+    if is_shortcut and area.type == "VIEW_3D":
+        if targets.font_object_for_ime(context, require_edit=True) is not None:
+            is_editing_3d_text = True
+
+    if is_shortcut and not is_editing_3d_text:
+        # Force clear active target and end IME on shortcut surfaces
+        clear_bridge_target_state()
+        end_ime()
+        return TARGET_POLL_INTERVAL
+
     hwnd = active_hwnd()
-    target = target_from_context(bpy.context)
+    target = target_from_context(context)
     if targets.is_usable_input_target(target):
         activate_target(target, hwnd)
     elif targets.is_usable_input_target(runtime.state.active_target):
@@ -197,7 +261,7 @@ def start(insert_on_commit: bool = False) -> int:
 
     runtime.state.insert_on_commit = bool(insert_on_commit)
     install_hook = getattr(platform_api, "install_text_commit_hook", None)
-    installed = int(install_hook(handle_committed_text)) if callable(install_hook) else 0
+    installed = int(install_hook(handle_committed_text, is_ime_allowed)) if callable(install_hook) else 0
     if installed <= 0:
         return 0
 

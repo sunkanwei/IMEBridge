@@ -165,6 +165,7 @@ class ObjC:
         self.begin_ime = self.sel("beginIME:y:w:h:completed:")
         self.end_ime = self.sel("endIME")
         self.insert_text = self.sel("insertText:replacementRange:")
+        self.input_context = self.sel("inputContext")
         self.string = self.sel("string")
         self.utf8_string = self.sel("UTF8String")
 
@@ -197,6 +198,14 @@ class MacOSApi:
             ctypes.c_void_p,
             ctypes.c_void_p,
             NSRange,
+        )
+        self._ime_allowed_callback = None
+        self._input_context_callback = None
+        self._input_context_records: dict[int, dict[str, object]] = {}
+        self._input_context_imp_type = ctypes.CFUNCTYPE(
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
         )
 
     def application(self) -> int:
@@ -336,6 +345,15 @@ class MacOSApi:
             return record
         return None
 
+    def _input_context_record_for_object(self, obj: int) -> dict[str, object] | None:
+        """Find the saved original IMP of inputContext for a Cocoa view object."""
+        cls = ptr_value(self.objc.object_getClass(obj))
+        if cls in self._input_context_records:
+            return self._input_context_records[cls]
+        for record in self._input_context_records.values():
+            return record
+        return None
+
     def _call_original_insert_text(
         self,
         obj: int,
@@ -377,9 +395,14 @@ class MacOSApi:
             except Exception:
                 return
 
-    def install_insert_text_hook(self, commit_handler: object) -> int:
-        """Patch Blender Cocoa view classes so committed IME text is observable."""
+    def install_insert_text_hook(
+        self,
+        commit_handler: object,
+        ime_allowed_callback: object = None,
+    ) -> int:
+        """Patch Blender Cocoa view classes so committed IME text and context are managed."""
         self._commit_handler = commit_handler
+        self._ime_allowed_callback = ime_allowed_callback
         if self._insert_text_records:
             return len(self._insert_text_records)
 
@@ -391,14 +414,38 @@ class MacOSApi:
         ) -> None:
             self._handle_insert_text(obj, selector, chars, replacement_range)
 
+        def input_context_callback(obj: int, selector: int) -> int:
+            try:
+                allowed_cb = self._ime_allowed_callback
+                allowed = allowed_cb() if callable(allowed_cb) else True
+                if not allowed:
+                    return 0
+                record = self._input_context_record_for_object(obj)
+                if record is not None:
+                    original = record.get("callable")
+                    if original is not None:
+                        return ptr_value(original(obj, selector))
+            except Exception:
+                pass
+            return 0
+
         self._insert_text_callback = self._insert_text_imp_type(callback)
         callback_ptr = ctypes.cast(
             self._insert_text_callback,
             ctypes.c_void_p,
         ).value
-        if not callback_ptr:
+
+        self._input_context_callback = self._input_context_imp_type(input_context_callback)
+        ic_callback_ptr = ctypes.cast(
+            self._input_context_callback,
+            ctypes.c_void_p,
+        ).value
+
+        if not callback_ptr or not ic_callback_ptr:
             self._insert_text_callback = None
+            self._input_context_callback = None
             self._commit_handler = None
+            self._ime_allowed_callback = None
             return 0
 
         installed = 0
@@ -407,6 +454,7 @@ class MacOSApi:
             if not cls:
                 continue
             try:
+                # 1. Swizzle insertText:replacementRange:
                 method = ptr_value(
                     self.objc.class_getInstanceMethod(cls, self.objc.insert_text)
                 )
@@ -418,18 +466,35 @@ class MacOSApi:
                 previous = ptr_value(
                     self.objc.method_setImplementation(method, callback_ptr)
                 )
+                original_imp = previous or old_imp
+                self._insert_text_records[cls] = {
+                    "method": method,
+                    "old_imp": original_imp,
+                    "callable": self._insert_text_imp_type(original_imp),
+                }
+
+                # 2. Swizzle inputContext
+                method_ic = ptr_value(
+                    self.objc.class_getInstanceMethod(cls, self.objc.input_context)
+                )
+                if method_ic:
+                    old_imp_ic = ptr_value(self.objc.method_getImplementation(method_ic))
+                    if old_imp_ic:
+                        previous_ic = ptr_value(
+                            self.objc.method_setImplementation(method_ic, ic_callback_ptr)
+                        )
+                        original_imp_ic = previous_ic or old_imp_ic
+                        self._input_context_records[cls] = {
+                            "method": method_ic,
+                            "old_imp": original_imp_ic,
+                            "callable": self._input_context_imp_type(original_imp_ic),
+                        }
             except (OSError, TypeError, ValueError):
                 continue
-            original_imp = previous or old_imp
-            self._insert_text_records[cls] = {
-                "method": method,
-                "old_imp": original_imp,
-                "callable": self._insert_text_imp_type(original_imp),
-            }
             installed += 1
+
         if installed == 0:
-            self._insert_text_callback = None
-            self._commit_handler = None
+            self.uninstall_insert_text_hook()
         return installed
 
     def uninstall_insert_text_hook(self) -> int:
@@ -448,6 +513,19 @@ class MacOSApi:
         self._insert_text_records.clear()
         self._insert_text_callback = None
         self._commit_handler = None
+
+        for record in list(self._input_context_records.values()):
+            method = ptr_value(record.get("method"))
+            old_imp = ptr_value(record.get("old_imp"))
+            if not method or not old_imp:
+                continue
+            try:
+                self.objc.method_setImplementation(method, old_imp)
+            except (OSError, ValueError):
+                pass
+        self._input_context_records.clear()
+        self._input_context_callback = None
+        self._ime_allowed_callback = None
         return restored
 
 
@@ -657,12 +735,15 @@ def end_ime() -> bool:
     return api.end_ime()
 
 
-def install_text_commit_hook(commit_handler: object) -> int:
+def install_text_commit_hook(
+    commit_handler: object,
+    ime_allowed_callback: object = None,
+) -> int:
     """Install the backend hook that mirrors committed Cocoa IME text."""
     api = ensure()
     if api is None:
         return 0
-    return api.install_insert_text_hook(commit_handler)
+    return api.install_insert_text_hook(commit_handler, ime_allowed_callback)
 
 
 def uninstall_text_commit_hook() -> int:
