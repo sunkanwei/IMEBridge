@@ -99,6 +99,8 @@ blender --factory-startup --command extension build --source-dir path\to\IMEBrid
 
 Windows 下也可以直接双击 `build_extension.bat`，它会调用 Blender 官方构建命令，把 `IMEBridge-版本号.zip` 输出到桌面，并检查发布包没有包含 README、bat 或 Python 缓存文件。
 
+macOS 下可以在终端或 Finder 中运行 `build_extension.command`。如果首次复制后 Finder 提示没有执行权限，先运行 `chmod +x build_extension.command`；如果 Blender 没有安装在 `/Applications/Blender.app`，可以先设置 `BLENDER_EXE` 指向 Blender 可执行文件。
+
 ## 许可证
 
 IMEBridge 以 `GPL-3.0-or-later` 许可发布。使用、修改和分发时请遵守对应开源许可证要求。

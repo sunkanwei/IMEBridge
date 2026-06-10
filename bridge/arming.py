@@ -1,7 +1,5 @@
 """Delayed re-arming after Blender focus and area changes."""
 
-import bpy
-
 from ..core import runtime
 from ..core import safe_ops
 from ..targets import detect as targets
@@ -11,8 +9,8 @@ def request_auto_arm() -> None:
     """Re-arm on the next timer tick, after Blender has settled focus."""
     if runtime.state.auto_arm_timer_registered:
         return
-    runtime.state.auto_arm_timer_registered = True
-    bpy.app.timers.register(_auto_arm_input, first_interval=0.0)
+    if safe_ops.register_timer(_auto_arm_input, first_interval=0.0):
+        runtime.state.auto_arm_timer_registered = True
 
 
 def cancel_auto_arm() -> None:
@@ -28,7 +26,7 @@ def _auto_arm_input() -> None:
     runtime.state.auto_arm_timer_registered = False
 
     target = runtime.state.active_target
-    if not targets.is_supported_input_target(target):
+    if not targets.is_usable_input_target(target):
         return None
 
     from . import hook

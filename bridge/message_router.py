@@ -35,6 +35,11 @@ def set_neutral_scope() -> None:
     runtime.state.input_scope.current_area_type = ""
 
 
+def clear_native_text_ui_handoff() -> None:
+    """Release the temporary handoff to Blender's own text fields."""
+    runtime.state.input_scope.native_text_ui_handoff = False
+
+
 def target_area_type(target: object) -> str:
     """Read the editor type from a resolved bridge target."""
     area = getattr(target, "area", None)
@@ -60,12 +65,13 @@ def clear_bridge_target_state() -> None:
     runtime.state.text_ime_session.end_current()
     ime_guards.clear_ime_activity()
     ime_guards.clear_space_suppression()
+    ime_guards.clear_space_confirm()
     runtime.state.font_result_dedup.clear()
 
 
 def apply_enabled_scope(scope: input_scope.InputScope) -> None:
     """Restore IMEBridge input for a supported Text or 3D Text target."""
-    if scope.target is None:
+    if not targets.is_usable_input_target(scope.target):
         return
     target_state.set_active_target(scope.target)
     ime_switch.restore_if_managed(scope.hwnd)
@@ -119,10 +125,13 @@ def scope_target_from_context() -> object | None:
 
 def refresh_scope_from_context(hwnd: object) -> bool:
     """Promote a stale shortcut scope when Blender now has a text target."""
+    if runtime.state.input_scope.native_text_ui_handoff:
+        return False
+
     target = scope_target_from_context()
     if target is None:
         target = recent_font_target_from_state()
-    if target is None:
+    if not targets.is_usable_input_target(target):
         return False
 
     runtime.state.input_scope.current_kind = input_scope.SCOPE_ENABLED_TARGET
@@ -150,11 +159,11 @@ def schedule_input_scope_application(scope: input_scope.InputScope) -> None:
     runtime.state.input_scope.pending_scope = scope
     if runtime.state.input_scope.scope_timer_registered:
         return
-    runtime.state.input_scope.scope_timer_registered = True
-    bpy.app.timers.register(
+    if safe_ops.register_timer(
         _apply_pending_input_scope,
         first_interval=INPUT_SCOPE_TIMER_INTERVAL,
-    )
+    ):
+        runtime.state.input_scope.scope_timer_registered = True
 
 
 def cancel_pending_input_scope() -> None:
@@ -167,6 +176,19 @@ def cancel_pending_input_scope() -> None:
 def handle_mouse_down(hwnd: object, lparam: object) -> None:
     """Mouse clicks are our best signal that Blender focus moved."""
     scope = input_scope.from_mouse_lparam(hwnd, lparam)
+    if runtime.state.input_scope.native_text_ui_handoff:
+        clear_native_text_ui_handoff()
+        set_neutral_scope()
+        clear_bridge_target_state()
+        schedule_input_scope_application(
+            input_scope.InputScope(
+                input_scope.SCOPE_NEUTRAL,
+                hwnd=hwnd,
+                hit=scope.hit,
+            )
+        )
+        return
+
     set_current_scope(scope)
 
     if scope.kind == input_scope.SCOPE_ENABLED_TARGET and scope.target is not None:
@@ -255,9 +277,27 @@ def handle_native_text_ui_shortcut(
         return False
 
     set_neutral_scope()
+    runtime.state.input_scope.native_text_ui_handoff = True
     cancel_pending_input_scope()
     clear_bridge_target_state()
     ime_switch.restore_if_managed(hwnd)
+    return True
+
+
+def handle_native_text_ui_release(
+    win: object,
+    msg_value: int,
+    wparam: object,
+) -> bool:
+    """Keyboard-closing native text UI should not leave the bridge paused."""
+    if not runtime.state.input_scope.native_text_ui_handoff:
+        return False
+    if msg_value != win.WM_KEYUP:
+        return False
+    if win32_api.ptr_value(wparam) not in {win.VK_ESCAPE, win.VK_RETURN}:
+        return False
+    clear_native_text_ui_handoff()
+    set_neutral_scope()
     return True
 
 
@@ -289,12 +329,16 @@ def is_supported_message(win: object, msg_value: int) -> bool:
 
 def bridge_ime_allowed() -> bool:
     """Keep IMEBridge away from native Blender UI text fields."""
+    if runtime.state.input_scope.native_text_ui_handoff:
+        return False
+
     current_kind = runtime.state.input_scope.current_kind
     if current_kind == input_scope.SCOPE_SHORTCUT_SURFACE:
         return False
     if current_kind == input_scope.SCOPE_ENABLED_TARGET:
-        return True
-    return targets.is_supported_input_target(runtime.state.active_target)
+        target = runtime.state.composition_target or runtime.state.active_target
+        return targets.is_usable_input_target(target)
+    return targets.is_usable_input_target(runtime.state.active_target)
 
 
 def is_bridge_ime_message(win: object, msg_value: int) -> bool:
@@ -377,17 +421,22 @@ def queue_ime_result(hwnd: object, result: str | None) -> None:
         return
 
     target = resolve_input_target_from_state()
+    if not targets.is_usable_input_target(target):
+        return
     if models.is_text_editor_target(target):
         text_session = runtime.state.text_ime_session.active_for_text(target.text)
         text_target.mark_composition_committed(text_session)
     else:
         text_session = None
-    insert_queue.queue(result, target, text_session)
-
-    if models.is_font_edit_target(target):
-        font_commit.mark_recent_font_result(target, result)
-    if targets.is_supported_input_target(target):
-        ime_guards.mark_space_suppression(hwnd)
+    insert_queue.queue(
+        result,
+        target,
+        text_session,
+        hwnd=hwnd,
+        source=insert_queue.SOURCE_IME_RESULT,
+        suppress_space=True,
+    )
+    ime_guards.mark_space_suppression(hwnd)
 
 
 def handle_ime_composition(win: object, hwnd: object, l_value: int) -> None:
@@ -406,11 +455,11 @@ def handle_ime_composition(win: object, hwnd: object, l_value: int) -> None:
         queue_ime_result(hwnd, result)
 
 
-def handle_ime_end_composition() -> None:
+def handle_ime_end_composition(hwnd: object) -> None:
     """Release composition state once the IME is done."""
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
-    ime_guards.clear_ime_activity()
+    ime_guards.mark_ime_activity(hwnd)
 
 
 def dispatch_ime_message(
@@ -430,7 +479,7 @@ def dispatch_ime_message(
     elif msg_value == win.WM_IME_COMPOSITION:
         handle_ime_composition(win, hwnd, win32_api.ptr_value(lparam))
     elif msg_value == win.WM_IME_ENDCOMPOSITION:
-        handle_ime_end_composition()
+        handle_ime_end_composition(hwnd)
 
     return message_result.MessageResult.pass_through()
 
@@ -455,6 +504,8 @@ def handle_window_message(
 
     if handle_native_text_ui_shortcut(win, hwnd, msg_value, wparam):
         return message_result.MessageResult.pass_through()
+
+    handle_native_text_ui_release(win, msg_value, wparam)
 
     refresh_scope_from_context(hwnd)
 

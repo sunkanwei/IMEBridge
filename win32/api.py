@@ -120,6 +120,7 @@ class Win32Api:
     WM_IME_KEYUP = 0x0291
 
     VK_BACK = 0x08
+    VK_RETURN = 0x0D
     VK_ESCAPE = 0x1B
     VK_CONTROL = 0x11
     VK_MENU = 0x12
@@ -360,6 +361,18 @@ def class_name(win: Win32Api, hwnd: object) -> str:
     return buffer.value
 
 
+def window_process_id(win: Win32Api, hwnd: object) -> int:
+    """Return the owning process id for a window handle."""
+    pid = wintypes.DWORD()
+    win.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return int(pid.value)
+
+
+def is_current_process_window(win: Win32Api, hwnd: object) -> bool:
+    """Check whether hwnd belongs to this Blender process."""
+    return bool(hwnd) and window_process_id(win, hwnd) == os.getpid()
+
+
 def enum_process_windows(include_children: bool = True) -> list[dict[str, object]]:
     """Collect only windows owned by Blender's current process."""
     win = ensure_windows()
@@ -376,9 +389,7 @@ def enum_process_windows(include_children: bool = True) -> list[dict[str, object
         hwnd_value = ptr_value(hwnd)
         if hwnd_value in seen:
             return
-        pid = wintypes.DWORD()
-        win.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value != current_pid:
+        if window_process_id(win, hwnd) != current_pid:
             return
         seen.add(hwnd_value)
         visible = bool(win.user32.IsWindowVisible(hwnd))

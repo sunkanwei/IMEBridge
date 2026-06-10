@@ -31,22 +31,23 @@ def call_previous_window_proc(
     )
 
 
-def make_window_proc(win: object, old_proc: int) -> object:
+def make_window_proc(win: object, old_proc: int, control: dict[str, bool]) -> object:
     """Wrap Blender's window procedure without letting Python leaks escape."""
     def wndproc(hwnd_arg: object, msg: object, wparam: object, lparam: object) -> object:
         """Handle one message, then hand it back to Blender when untouched."""
         handled_result = None
-        try:
-            result = message_router.handle_window_message(
-                hwnd_arg,
-                msg,
-                wparam,
-                lparam,
-            )
-            handled_result = result.as_window_result
-        # A Python exception must never escape a Win32 window procedure.
-        except Exception:
-            handled_result = None
+        if control.get("active", True):
+            try:
+                result = message_router.handle_window_message(
+                    hwnd_arg,
+                    msg,
+                    wparam,
+                    lparam,
+                )
+                handled_result = result.as_window_result
+            # A Python exception must never escape a Win32 window procedure.
+            except Exception:
+                handled_result = None
 
         if handled_result is not None:
             return handled_result
@@ -55,12 +56,24 @@ def make_window_proc(win: object, old_proc: int) -> object:
     return win.WNDPROC(wndproc)
 
 
+def keep_detached_hook(record: dict[str, object]) -> None:
+    """Keep callbacks alive if another add-on still owns the top of the chain."""
+    record["control"]["active"] = False
+    if record not in runtime.state.detached_hooks:
+        runtime.state.detached_hooks.append(record)
+
+
 def hook_window(win: object, item: dict[str, object]) -> bool:
     """Subclass a single GHOST window if it has not been hooked yet."""
     hwnd = item["hwnd"]
     hwnd_value = item["hwnd_value"]
     if hwnd_value in runtime.state.hooks:
-        return False
+        record = runtime.state.hooks[hwnd_value]
+        if current_window_proc(win, hwnd) == record["callback_ptr"]:
+            record["control"]["active"] = True
+            return False
+        keep_detached_hook(record)
+        runtime.state.hooks.pop(hwnd_value, None)
     if not item["visible"] or not is_hook_target(item):
         return False
 
@@ -68,7 +81,8 @@ def hook_window(win: object, item: dict[str, object]) -> bool:
     if not old_proc:
         return False
 
-    callback = make_window_proc(win, old_proc)
+    control = {"active": True}
+    callback = make_window_proc(win, old_proc, control)
     ctypes.set_last_error(0)
     previous = win32_api.ptr_value(
         win.SetWindowLongPtrW(
@@ -85,6 +99,7 @@ def hook_window(win: object, item: dict[str, object]) -> bool:
         "hwnd": hwnd,
         "old_proc": old_proc,
         "callback": callback,
+        "control": control,
         "callback_ptr": win32_api.ptr_value(ctypes.cast(callback, ctypes.c_void_p)),
         "class": item["class"],
     }
@@ -117,6 +132,7 @@ def restore_hook(win: object, record: dict[str, object]) -> bool:
         return True
 
     if current_window_proc(win, hwnd) != record["callback_ptr"]:
+        keep_detached_hook(record)
         return False
 
     ctypes.set_last_error(0)
@@ -148,6 +164,8 @@ def stop_hooks() -> int:
         if restore_hook(win, record):
             runtime.state.hooks.pop(hwnd_value, None)
             stopped += 1
+        else:
+            runtime.state.hooks.pop(hwnd_value, None)
 
     runtime.clear_input_state()
     runtime.clear_pending_inserts()

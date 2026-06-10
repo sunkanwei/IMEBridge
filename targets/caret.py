@@ -62,14 +62,9 @@ def text_editor_caret_info(
         return None
 
     return models.CandidateInfo(
-        area=target.area,
-        region=target.region,
         space=target.space,
-        text=target.text,
         line=line,
         column=column,
-        region_x=region_x,
-        region_y=region_y,
         screen_x=point.x,
         screen_y=point.y,
         line_height=text_line_height(target.space, target.region),
@@ -113,8 +108,4 @@ def ime_candidate_position(
     return models.CandidatePosition(
         screen_x=int(info.screen_x + requested_x_offset + manual_x_offset),
         screen_y=int(info.screen_y + manual_y_offset),
-        char_width=char_width,
-        requested_x_offset=requested_x_offset,
-        manual_x_offset=manual_x_offset,
-        manual_y_offset=manual_y_offset,
     )

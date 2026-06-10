@@ -66,8 +66,8 @@ def schedule_auto_enable(first_interval: float = 0.1) -> None:
         or runtime.state.auto_enable_timer_registered
     ):
         return
-    runtime.state.auto_enable_timer_registered = True
-    bpy.app.timers.register(_auto_enable_timer, first_interval=first_interval)
+    if safe_ops.register_timer(_auto_enable_timer, first_interval=first_interval):
+        runtime.state.auto_enable_timer_registered = True
 
 
 def cancel_auto_enable() -> None:
@@ -76,16 +76,6 @@ def cancel_auto_enable() -> None:
     runtime.state.auto_enable_attempts = 0
     safe_ops.unregister_timer(_auto_enable_timer)
     arming.cancel_auto_arm()
-
-
-def request_auto_arm() -> None:
-    """Forward focus-change rearming through the lifecycle facade."""
-    arming.request_auto_arm()
-
-
-def start_hooks(insert_on_commit: bool = False) -> int:
-    """Public lifecycle entry for installing Win32 hooks."""
-    return hook.start_hooks(insert_on_commit)
 
 
 def stop_hooks() -> int:

@@ -3,6 +3,15 @@
 import bpy
 
 
+def register_timer(callback: object, *, first_interval: float = 0.0) -> bool:
+    """Register a Blender timer without leaving local state half-armed."""
+    try:
+        bpy.app.timers.register(callback, first_interval=first_interval)
+    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+        return False
+    return True
+
+
 def unregister_timer(callback: object) -> bool:
     """Timers may already be gone during reload or failed registration."""
     try:
@@ -28,13 +37,5 @@ def maybe_get_text_body(text_data: object) -> str | None:
     """Text datablocks can go stale between a callback and a timer tick."""
     try:
         return text_data.as_string()
-    except (AttributeError, ReferenceError, RuntimeError):
-        return None
-
-
-def maybe_get_font_body(data: object) -> str | None:
-    """Font datablocks follow the same stale-RNA rules as Text datablocks."""
-    try:
-        return data.body
     except (AttributeError, ReferenceError, RuntimeError):
         return None

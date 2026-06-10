@@ -33,10 +33,6 @@ class AreaHit:
     area: object
     region: object
     space: object
-    client_x: int = 0
-    client_y: int = 0
-    window_x: int = 0
-    window_y: int = 0
     area_x: int = 0
     area_y: int = 0
 
@@ -77,32 +73,54 @@ def area_hit_at_client_point(
     if client_height is None:
         return None
 
+    screen_point = win32_api.client_to_screen(win, hwnd, client_x, client_y)
     blender_y = client_height - client_y
-    for window in candidate_windows():
-        screen = window.screen
-        for area in screen.areas:
-            region = win32_api.window_region(area)
+    for window in candidate_windows(screen_point):
+        try:
+            screen = window.screen
+            areas = tuple(screen.areas)
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
+        for area in areas:
+            try:
+                region = win32_api.window_region(area)
+            except (AttributeError, ReferenceError, RuntimeError):
+                continue
             if region is None:
                 continue
             if not (region.x <= client_x < region.x + region.width):
                 continue
             if region.y <= blender_y < region.y + region.height:
+                try:
+                    space = area.spaces.active
+                except (AttributeError, ReferenceError, RuntimeError):
+                    continue
                 return AreaHit(
                     window,
                     area,
                     region,
-                    area.spaces.active,
-                    client_x=client_x,
-                    client_y=client_y,
-                    window_x=client_x,
-                    window_y=blender_y,
+                    space,
                     area_x=client_x - region.x,
                     area_y=blender_y - region.y,
                 )
     return None
 
 
-def candidate_windows() -> list[object]:
+def window_contains_screen_point(window: object, screen_point: object) -> bool | None:
+    """Use Blender window bounds when they are available."""
+    if screen_point is None:
+        return None
+    try:
+        x = int(window.x)
+        y = int(window.y)
+        width = int(window.width)
+        height = int(window.height)
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        return None
+    return x <= screen_point.x < x + width and y <= screen_point.y < y + height
+
+
+def candidate_windows(screen_point: object = None) -> list[object]:
     """Prefer Blender's active window, then fall back to all known windows."""
     windows = []
     seen = set()
@@ -111,35 +129,59 @@ def candidate_windows() -> list[object]:
         """Keep window ordering stable without trusting object identity."""
         if window is None:
             return
-        key = win32_api.ptr_value(window.as_pointer())
+        try:
+            key = win32_api.ptr_value(window.as_pointer())
+        except (AttributeError, ReferenceError, RuntimeError):
+            return
         if key in seen:
             return
         seen.add(key)
         windows.append(window)
 
     add(getattr(bpy.context, "window", None))
-    for window in bpy.context.window_manager.windows:
+    try:
+        manager = bpy.context.window_manager
+        manager_windows = tuple(manager.windows)
+    except (AttributeError, ReferenceError, RuntimeError):
+        manager_windows = ()
+    for window in manager_windows:
         add(window)
-    return windows
+    if screen_point is None:
+        return windows
+
+    matched = []
+    unknown = []
+    for window in windows:
+        contains = window_contains_screen_point(window, screen_point)
+        if contains is True:
+            matched.append(window)
+        elif contains is None:
+            unknown.append(window)
+    if matched:
+        return matched
+    return unknown or windows
 
 
 def enabled_target_from_hit(hit: AreaHit) -> object | None:
     """Return a bridge-owned text target only for areas we can handle."""
     area_type = getattr(hit.area, "type", None)
-    if area_type == "TEXT_EDITOR":
-        return targets.make_text_editor_target(
-            hit.window,
-            hit.area,
-            hit.region,
-            hit.space,
-        )
-    if area_type == "VIEW_3D":
-        return targets.make_font_edit_target(
-            hit.window,
-            hit.area,
-            hit.region,
-            hit.space,
-        )
+    try:
+        if area_type == "TEXT_EDITOR":
+            return targets.make_text_editor_target(
+                hit.window,
+                hit.area,
+                hit.region,
+                hit.space,
+            )
+        if area_type == "VIEW_3D":
+            return targets.make_font_edit_target(
+                hit.window,
+                hit.area,
+                hit.region,
+                hit.space,
+            )
+    except (AttributeError, ReferenceError, RuntimeError):
+        return None
     return None
 
 
@@ -147,6 +189,9 @@ def classify_hit(hwnd: object, hit: AreaHit | None) -> InputScope:
     """Prefer explicit targets, then explicit shortcut surfaces, then neutral."""
     if hit is None:
         return InputScope(SCOPE_NEUTRAL, hwnd=hwnd)
+
+    if nexus_whitelist.is_nexusui_surface_hit(hit):
+        return InputScope(SCOPE_NEUTRAL, hwnd=hwnd, hit=hit)
 
     target = enabled_target_from_hit(hit)
     if target is not None:
@@ -156,9 +201,6 @@ def classify_hit(hwnd: object, hit: AreaHit | None) -> InputScope:
             target=target,
             hit=hit,
         )
-
-    if nexus_whitelist.is_nexusui_surface_hit(hit):
-        return InputScope(SCOPE_NEUTRAL, hwnd=hwnd, hit=hit)
 
     area_type = getattr(hit.area, "type", None)
     if area_type in SHORTCUT_SURFACE_AREAS:
@@ -177,4 +219,7 @@ def scope_area_type(scope: InputScope) -> str:
     """Expose the editor type without leaking AreaHit details to callers."""
     if scope.hit is None:
         return ""
-    return str(getattr(scope.hit.area, "type", "") or "")
+    try:
+        return str(getattr(scope.hit.area, "type", "") or "")
+    except (AttributeError, ReferenceError, RuntimeError):
+        return ""

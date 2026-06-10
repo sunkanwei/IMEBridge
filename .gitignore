@@ -13,5 +13,7 @@ build/
 # Local editor and OS files
 .vscode/
 .idea/
+.DS_Store
+._*
 Thumbs.db
 Desktop.ini

@@ -18,7 +18,7 @@ tags = ["System", "Text Editor", "User Interface"]
 platforms = ["windows-x64"]
 
 [build]
-# README.md, build_extension.bat, and .git/ are intentionally omitted.
+# README.md, build scripts, and .git/ are intentionally omitted.
 paths = [
   "__init__.py",
   "bridge/__init__.py",
@@ -30,6 +30,7 @@ paths = [
   "bridge/ime_switch.py",
   "bridge/input_scope.py",
   "bridge/message_router.py",
+  "bridge/nexus_whitelist.py",
   "bridge/window_hook.py",
   "core/__init__.py",
   "core/message_result.py",

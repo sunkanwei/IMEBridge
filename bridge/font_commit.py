@@ -91,6 +91,7 @@ def mark_recent_font_result(target: object, text: str | None) -> None:
     state = runtime.state.font_result_dedup
     state.target_key = font_result_target_key(target)
     state.text = text or ""
+    state.echo_index = 0
     state.until = time.monotonic() + FONT_RESULT_DEDUP_SECONDS
 
 
@@ -117,7 +118,15 @@ def is_recent_font_result_char(target: object, char: str) -> bool:
     if not is_recent_font_target(target):
         return False
     state = runtime.state.font_result_dedup
-    return bool(char) and char in state.text
+    if not char or state.echo_index >= len(state.text):
+        return False
+    if char != state.text[state.echo_index]:
+        state.clear_echo()
+        return False
+    state.echo_index += 1
+    if state.echo_index >= len(state.text):
+        state.clear_echo()
+    return True
 
 
 def font_input_target_from_state() -> object | None:
@@ -158,7 +167,12 @@ def handle_font_char_commit(
         return 0
 
     target_state.set_active_target(target)
-    insert_queue.queue(char, target)
-    mark_recent_font_result(target, char)
+    insert_queue.queue(
+        char,
+        target,
+        hwnd=hwnd,
+        source=insert_queue.SOURCE_FONT_CHAR,
+        suppress_space=True,
+    )
     ime_guards.mark_space_suppression(hwnd)
     return 0

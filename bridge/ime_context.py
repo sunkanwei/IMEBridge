@@ -77,7 +77,11 @@ def ghost_window_for_ime(win: object, hwnd: object = None) -> object | None:
         return hwnd
 
     foreground = win.user32.GetForegroundWindow()
-    if foreground and win32_api.class_name(win, foreground) == "GHOST_WindowClass":
+    if (
+        foreground
+        and win32_api.is_current_process_window(win, foreground)
+        and win32_api.class_name(win, foreground) == "GHOST_WindowClass"
+    ):
         return foreground
 
     for item in win32_api.enum_process_windows(include_children=False):
@@ -126,10 +130,7 @@ def font_edit_candidate_info(
         return None
 
     return models.CandidateInfo(
-        area=target.area,
-        region=target.region,
         space=target.space,
-        obj=target.obj,
         screen_x=point.x,
         screen_y=point.y,
         line_height=FONT_CANDIDATE_LINE_HEIGHT,
@@ -249,7 +250,7 @@ def update_ime_candidate_position(hwnd: object = None, target: object = None) ->
         return False
 
     target = target or runtime.state.composition_target or runtime.state.active_target
-    if not targets.is_supported_input_target(target):
+    if not targets.is_usable_input_target(target):
         return False
 
     info = candidate_info_for_target(win, hwnd, target)

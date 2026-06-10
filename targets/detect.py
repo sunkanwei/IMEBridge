@@ -41,8 +41,11 @@ def make_text_editor_target_from_context(
     if window is None or area is None or area.type != "TEXT_EDITOR":
         return None
 
-    region = win32_api.window_region(area)
-    space = area.spaces.active
+    try:
+        region = win32_api.window_region(area)
+        space = area.spaces.active
+    except (AttributeError, ReferenceError, RuntimeError):
+        return None
     if region is None or space is None:
         return None
     return make_text_editor_target(window, area, region, space)
@@ -60,9 +63,12 @@ def iter_font_object_candidates(context: object = None) -> Iterator[object]:
 
     def emit(obj: object) -> Iterator[object]:
         """Keep each Font object once, even when Blender exposes it twice."""
-        if obj is None or getattr(obj, "type", None) != "FONT":
+        try:
+            if obj is None or getattr(obj, "type", None) != "FONT":
+                return
+            pointer = win32_api.ptr_value(obj.as_pointer())
+        except (AttributeError, ReferenceError, RuntimeError):
             return
-        pointer = win32_api.ptr_value(obj.as_pointer())
         if pointer in seen:
             return
         seen.add(pointer)
@@ -72,18 +78,34 @@ def iter_font_object_candidates(context: object = None) -> Iterator[object]:
         for attr in ("edit_object", "object", "active_object"):
             yield from emit(getattr(ctx, attr, None))
 
-        view_layer = getattr(ctx, "view_layer", None)
-        objects = getattr(view_layer, "objects", None)
-        yield from emit(getattr(objects, "active", None))
+        try:
+            view_layer = getattr(ctx, "view_layer", None)
+            objects = getattr(view_layer, "objects", None)
+            active = getattr(objects, "active", None)
+        except (AttributeError, ReferenceError, RuntimeError):
+            active = None
+        yield from emit(active)
 
-        for obj in getattr(ctx, "selected_objects", None) or []:
+        try:
+            selected_objects = tuple(getattr(ctx, "selected_objects", None) or ())
+        except (AttributeError, ReferenceError, RuntimeError):
+            selected_objects = ()
+        for obj in selected_objects:
             yield from emit(obj)
 
-    for obj in bpy.data.objects:
-        if (
-            getattr(obj, "type", None) == "FONT"
-            and getattr(obj, "mode", None) == "EDIT"
-        ):
+    try:
+        data_objects = tuple(bpy.data.objects)
+    except (AttributeError, ReferenceError, RuntimeError):
+        data_objects = ()
+    for obj in data_objects:
+        try:
+            is_edited_font = (
+                getattr(obj, "type", None) == "FONT"
+                and getattr(obj, "mode", None) == "EDIT"
+            )
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
+        if is_edited_font:
             yield from emit(obj)
 
 
@@ -96,8 +118,11 @@ def font_object_for_ime(
     for obj in iter_font_object_candidates(context):
         if fallback is None:
             fallback = obj
-        if getattr(obj, "mode", None) == "EDIT":
-            return obj
+        try:
+            if getattr(obj, "mode", None) == "EDIT":
+                return obj
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
     if require_edit:
         return None
     return fallback
@@ -119,14 +144,17 @@ def make_font_edit_target(
     obj = active_font_edit_object(context)
     if obj is None:
         return None
+    try:
+        screen = window.screen
+    except (AttributeError, ReferenceError, RuntimeError):
+        return None
     return models.FontEditTarget(
         window=window,
-        screen=window.screen,
+        screen=screen,
         area=area,
         region=region,
         space=space,
         obj=obj,
-        data=obj.data,
     )
 
 
@@ -139,8 +167,11 @@ def make_font_edit_target_from_context(
     if window is None or area is None or area.type != "VIEW_3D":
         return None
 
-    region = win32_api.window_region(area)
-    space = area.spaces.active
+    try:
+        region = win32_api.window_region(area)
+        space = area.spaces.active
+    except (AttributeError, ReferenceError, RuntimeError):
+        return None
     if region is None or space is None:
         return None
     return make_font_edit_target(window, area, region, space, context)
@@ -155,13 +186,24 @@ def find_font_edit_target(context: object = None) -> models.FontEditTarget | Non
     if current is not None:
         return current
 
-    for window in bpy.context.window_manager.windows:
-        screen = window.screen
-        for area in screen.areas:
-            if area.type != "VIEW_3D":
+    try:
+        windows = tuple(bpy.context.window_manager.windows)
+    except (AttributeError, ReferenceError, RuntimeError):
+        windows = ()
+    for window in windows:
+        try:
+            screen = window.screen
+            areas = tuple(screen.areas)
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
+        for area in areas:
+            try:
+                if area.type != "VIEW_3D":
+                    continue
+                region = win32_api.window_region(area)
+                space = area.spaces.active
+            except (AttributeError, ReferenceError, RuntimeError):
                 continue
-            region = win32_api.window_region(area)
-            space = area.spaces.active
             if region is None or space is None:
                 continue
             target = make_font_edit_target(window, area, region, space, context)
@@ -178,9 +220,45 @@ def make_input_target_from_context(context: object) -> object | None:
     return make_font_edit_target_from_context(context)
 
 
-def is_supported_input_target(target: object) -> bool:
-    """Keep commits away from unrelated Blender state."""
-    return models.is_text_editor_target(target) or models.is_font_edit_target(target)
+def is_live_text_editor_target(target: object) -> bool:
+    """Reject Text targets whose RNA context no longer points at the datablock."""
+    if not models.is_text_editor_target(target):
+        return False
+    try:
+        context = target_context(target)
+        if context is None or context["space"] is None:
+            return False
+        area = context["area"]
+        if getattr(area, "type", None) != "TEXT_EDITOR":
+            return False
+        if getattr(area.spaces, "active", None) != target.space:
+            return False
+        if not any(region == target.region for region in area.regions):
+            return False
+        return getattr(context["space"], "text", None) == target.text
+    except (AttributeError, ReferenceError, RuntimeError):
+        return False
+
+
+def is_live_font_edit_target(target: object) -> bool:
+    """Reject Font targets that no longer represent the edited object."""
+    if not models.is_font_edit_target(target):
+        return False
+    try:
+        obj = target.obj
+        if obj is None or getattr(obj, "type", None) != "FONT":
+            return False
+        if getattr(obj, "mode", None) != "EDIT":
+            return False
+        current = active_font_edit_object()
+        return current is None or current == obj
+    except (AttributeError, ReferenceError, RuntimeError):
+        return False
+
+
+def is_usable_input_target(target: object) -> bool:
+    """Check both target type and the minimum live Blender RNA it needs."""
+    return is_live_text_editor_target(target) or is_live_font_edit_target(target)
 
 
 def resolve_input_target(
@@ -189,14 +267,14 @@ def resolve_input_target(
     context: object = None,
 ) -> object | None:
     """Delay target choice; IME composition can outlive Blender focus changes."""
-    if is_supported_input_target(composition_target):
+    if is_usable_input_target(composition_target):
         return composition_target
 
     current_target = make_input_target_from_context(context or bpy.context)
-    if is_supported_input_target(current_target):
+    if is_usable_input_target(current_target):
         return current_target
 
-    if is_supported_input_target(active_target):
+    if is_usable_input_target(active_target):
         return active_target
 
     return find_font_edit_target(context)

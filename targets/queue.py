@@ -1,16 +1,15 @@
 """Main-thread queue for committed IME text."""
 
-import bpy
-
 from ..core import models
 from ..core import runtime
 from ..core import safe_ops
-from . import detect as targets
 from . import font as font_target
 from . import text as text_target
 
 
 PENDING_INSERT_TIMER_INTERVAL = 0.01
+SOURCE_IME_RESULT = "ime_result"
+SOURCE_FONT_CHAR = "font_char"
 
 
 def flush() -> None:
@@ -18,47 +17,78 @@ def flush() -> None:
     try:
         while runtime.state.pending_inserts:
             item = runtime.state.pending_inserts.popleft()
-            inserted = False
-
-            if models.is_text_editor_target(item.target):
-                inserted = text_target.insert(
-                    item.text,
-                    item.target,
-                    item.text_session,
-                )
-            elif models.is_font_edit_target(item.target):
-                inserted = font_target.insert(item.text, item.target)
-
-            if (
-                not inserted
-                and models.is_font_edit_target(item.target)
-                and targets.active_font_edit_object() is not None
-            ):
-                fallback_target = targets.find_font_edit_target()
-                font_target.insert(item.text, fallback_target)
+            try:
+                flush_one(item)
+            except (AttributeError, ReferenceError, RuntimeError, ValueError):
+                continue
     finally:
         runtime.state.insert_timer_registered = False
     return None
 
 
-def queue(text: str, target: object, text_session: object = None) -> None:
+def flush_one(item: models.PendingInsert) -> None:
+    """Commit one queued item while keeping the outer queue alive."""
+    inserted = False
+
+    if models.is_text_editor_target(item.target):
+        inserted = text_target.insert(
+            item.text,
+            item.target,
+            item.text_session,
+        )
+    elif models.is_font_edit_target(item.target):
+        if item.source == SOURCE_FONT_CHAR:
+            from ..bridge import font_commit
+
+            if font_commit.is_recent_font_result_char(item.target, item.text):
+                return
+        inserted = font_target.insert(item.text, item.target)
+
+    if not inserted:
+        return
+
+    if models.is_font_edit_target(item.target):
+        from ..bridge import font_commit
+
+        font_commit.mark_recent_font_result(item.target, item.text)
+
+    if item.suppress_space and item.hwnd:
+        from ..bridge import ime_guards
+
+        ime_guards.mark_space_suppression(item.hwnd)
+
+
+def queue(
+    text: str,
+    target: object,
+    text_session: object = None,
+    *,
+    hwnd: object = None,
+    source: str = "",
+    suppress_space: bool = False,
+) -> None:
     """Defer an IME commit until Blender operators are safe to call."""
     if not text:
         return
     if target is None:
-        target = targets.find_font_edit_target()
-    if target is None:
         return
 
     runtime.state.pending_inserts.append(
-        models.PendingInsert(text, target, text_session)
+        models.PendingInsert(
+            text,
+            target,
+            text_session,
+            hwnd=hwnd,
+            source=source,
+            suppress_space=suppress_space,
+        )
     )
     if not runtime.state.insert_timer_registered:
-        runtime.state.insert_timer_registered = True
-        bpy.app.timers.register(
+        if safe_ops.register_timer(
             flush,
             first_interval=PENDING_INSERT_TIMER_INTERVAL,
-        )
+        ):
+            runtime.state.insert_timer_registered = True
 
 
 def cancel() -> None:

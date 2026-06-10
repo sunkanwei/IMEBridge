@@ -143,9 +143,12 @@ def close_for_shortcut_surface(hwnd: object) -> bool:
 def restore_if_managed(hwnd: object) -> bool:
     """Restore only IME states that IMEBridge changed itself."""
     win = win32_api.ensure_windows()
+    if win is None:
+        return False
+
     key = hwnd_key(hwnd)
     record = runtime.state.input_scope.managed_open_status.pop(key, None)
-    if win is None or record is None:
+    if record is None:
         return False
     if not record.was_open:
         return True
@@ -166,12 +169,14 @@ def restore_if_managed(hwnd: object) -> bool:
         win.imm32.ImmReleaseContext(record.hwnd, himc)
 
 
-def restore_all_managed() -> int:
+def restore_all_managed(attempts: int = 3) -> int:
     """Best-effort cleanup for reloads and add-on shutdown."""
     restored = 0
-    for key, record in list(runtime.state.input_scope.managed_open_status.items()):
-        if restore_if_managed(record.hwnd):
-            restored += 1
-        else:
-            runtime.state.input_scope.managed_open_status.pop(key, None)
+    attempts = max(1, int(attempts))
+    for _attempt in range(attempts):
+        for _key, record in list(runtime.state.input_scope.managed_open_status.items()):
+            if restore_if_managed(record.hwnd):
+                restored += 1
+        if not runtime.state.input_scope.managed_open_status:
+            break
     return restored

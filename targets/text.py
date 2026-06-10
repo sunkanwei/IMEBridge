@@ -92,7 +92,6 @@ def capture_restore_snapshot(target: object) -> models.TextRestoreSnapshot | Non
         line = int(text_data.current_line_index)
         column = int(text_data.current_character)
         return models.TextRestoreSnapshot(
-            target=target,
             text=text_data,
             body=body,
             line=line,
@@ -320,11 +319,13 @@ def schedule_restore_guard(target: object) -> None:
         return
 
     runtime.state.text_restore_guard = snapshot
-    runtime.state.text_restore_timer_registered = True
-    bpy.app.timers.register(
+    if safe_ops.register_timer(
         restore_text_after_ime_edit_key,
         first_interval=TEXT_RESTORE_TIMER_INTERVAL,
-    )
+    ):
+        runtime.state.text_restore_timer_registered = True
+    else:
+        runtime.state.text_restore_guard = None
 
 
 def cancel_restore_guard() -> None:

@@ -70,7 +70,11 @@ echo Output : "%ZIP_PATH%"
 echo.
 
 echo Checking package exclusions...
-echo README.md, build_extension.bat, .git, __pycache__, and .pyc files are outside [build].paths.
+echo README.md, build scripts, .git, __pycache__, and .pyc files are outside [build].paths.
+
+echo Checking manifest Python paths...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$root = (Resolve-Path '%EXT_DIR%').Path; $manifest = Get-Content '%MANIFEST%' -Raw; $missing = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.py' | Where-Object { $_.FullName.Split([IO.Path]::DirectorySeparatorChar) -notcontains '__pycache__' } | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') } | Where-Object { -not $manifest.Contains(([char]34) + $_ + ([char]34)) }); if ($missing.Count -gt 0) { Write-Host 'ERROR: Python files missing from [build].paths:'; $missing | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }"
+if errorlevel 1 goto :fail
 
 if exist "%ZIP_PATH%" (
     echo Removing previous package on Desktop...
@@ -96,7 +100,7 @@ if not exist "%ZIP_PATH%" (
 
 echo.
 echo Checking package contents...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = '%ZIP_PATH%'; $archive = [IO.Compression.ZipFile]::OpenRead($zip); try { $bad = @($archive.Entries | Where-Object { $_.FullName -match '(^|/)README\.md$|(^|/)build_extension\.bat$|(^|/)\.git(/|$)|__pycache__|\.pyc$|\.bat$' } | ForEach-Object { $_.FullName }); if ($bad.Count -gt 0) { Write-Host 'ERROR: package contains excluded files:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 } } finally { $archive.Dispose() }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = '%ZIP_PATH%'; $archive = [IO.Compression.ZipFile]::OpenRead($zip); try { $bad = @($archive.Entries | Where-Object { $_.FullName -match '(^|/)README\.md$|(^|/)build_extension\.(bat|command|sh)$|(^|/)\.git(/|$)|__pycache__|\.pyc$|\.(bat|command|sh)$' } | ForEach-Object { $_.FullName }); if ($bad.Count -gt 0) { Write-Host 'ERROR: package contains excluded files:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 } } finally { $archive.Dispose() }"
 if errorlevel 1 goto :fail
 
 echo.
@@ -104,7 +108,7 @@ echo Done.
 echo Created: "%ZIP_PATH%"
 echo.
 echo The package is built by Blender's official extension command.
-echo README.md, this BAT file, .git, __pycache__, and .pyc files were not included.
+echo README.md, build scripts, .git, __pycache__, and .pyc files were not included.
 pause
 exit /b 0
 

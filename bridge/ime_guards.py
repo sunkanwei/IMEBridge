@@ -6,11 +6,13 @@ import time
 from . import ime_switch
 from ..core import models
 from ..core import runtime
+from ..targets import detect as targets
 from ..targets import text as text_target
 from ..win32 import api as win32_api
 
 
 SPACE_SUPPRESSION_SECONDS = 0.75
+SPACE_CONFIRM_SECONDS = 1.25
 IME_ACTIVITY_SECONDS = 2.0
 
 
@@ -22,10 +24,36 @@ def clear_space_suppression() -> None:
     runtime.state.space_suppression.clear()
 
 
-def mark_space_suppression(hwnd: object) -> None:
+def clear_space_confirm() -> None:
+    """Forget any recent Space confirmation marker."""
+    runtime.state.space_confirm.clear()
+
+
+def mark_space_confirm(hwnd: object) -> None:
+    """Remember that the current IME commit was confirmed by Space."""
+    runtime.state.space_confirm.hwnd = win32_api.ptr_value(hwnd)
+    runtime.state.space_confirm.until = time.monotonic() + SPACE_CONFIRM_SECONDS
+
+
+def consume_space_confirm(hwnd: object) -> bool:
+    """Use one recent Space confirmation as permission to swallow one space."""
+    state = runtime.state.space_confirm
+    if not state.hwnd or state.hwnd != win32_api.ptr_value(hwnd):
+        return False
+    if time.monotonic() > state.until:
+        state.clear()
+        return False
+    state.clear()
+    return True
+
+
+def mark_space_suppression(hwnd: object) -> bool:
     """Give the commit path a short grace period to eat Blender's stray space."""
+    if not consume_space_confirm(hwnd):
+        return False
     runtime.state.space_suppression.hwnd = win32_api.ptr_value(hwnd)
     runtime.state.space_suppression.until = time.monotonic() + SPACE_SUPPRESSION_SECONDS
+    return True
 
 
 def handle_space_suppression(
@@ -45,7 +73,6 @@ def handle_space_suppression(
         return None
 
     if msg_value == win.WM_KEYDOWN and w_value == win.VK_SPACE:
-        clear_space_suppression()
         return None
 
     if msg_value == win.WM_CHAR and w_value == win.VK_SPACE:
@@ -143,7 +170,7 @@ def ime_edit_guard_vkeys(win: object) -> set[int]:
 def active_target_for_ime_guard() -> object | None:
     """Pick the target currently at risk from IME edit keys."""
     target = runtime.state.composition_target or runtime.state.active_target
-    if not (models.is_text_editor_target(target) or models.is_font_edit_target(target)):
+    if not targets.is_usable_input_target(target):
         return None
     return target
 
@@ -169,6 +196,28 @@ def ime_edit_guard_target(
     if target is None or not ime_is_composing(win, hwnd, comp_string_reader):
         return None
     return target
+
+
+def mark_space_confirm_if_needed(
+    win: object,
+    hwnd: object,
+    msg_value: int,
+    wparam: object,
+    lparam: object,
+    comp_string_reader: CompositionReader,
+) -> None:
+    """Track only Space keys that happen while an IME owns a bridge target."""
+    is_space = False
+    if msg_value == win.WM_INPUT:
+        raw = win32_api.read_raw_keyboard(win, lparam)
+        is_space = raw is not None and raw["vkey"] == win.VK_SPACE
+    elif is_keyboard_message(win, msg_value):
+        is_space = win32_api.ptr_value(wparam) == win.VK_SPACE
+
+    if not is_space:
+        return
+    if ime_edit_guard_target(win, hwnd, comp_string_reader) is not None:
+        mark_space_confirm(hwnd)
 
 
 def protect_text_target_from_ime_edit(target: object) -> None:
@@ -304,6 +353,15 @@ def handle_message_guards(
     comp_string_reader: CompositionReader,
 ) -> int | None:
     """Run the keyboard shields before normal IME dispatch."""
+    mark_space_confirm_if_needed(
+        win,
+        hwnd,
+        msg_value,
+        wparam,
+        lparam,
+        comp_string_reader,
+    )
+
     font_space_result = handle_font_space_confirm_guard(
         win,
         hwnd,

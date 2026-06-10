@@ -34,7 +34,6 @@ class FontEditTarget:
     region: object
     space: object
     obj: object
-    data: object
 
     @property
     def type(self) -> str:
@@ -54,7 +53,6 @@ class TextImeSession:
     select_column: int
     replace_start: int
     replace_end: int
-    session_id: int
     committed: bool = False
 
     def owns_text(self, text_data: object) -> bool:
@@ -76,7 +74,6 @@ class TextImeSession:
 class TextRestoreSnapshot:
     """Text Editor state kept briefly while edit-key guards settle."""
 
-    target: TextEditorTarget
     text: object
     body: str
     line: int
@@ -94,25 +91,22 @@ class PendingInsert:
     text: str
     target: object
     text_session: object = None
+    hwnd: object = None
+    source: str = ""
+    suppress_space: bool = False
 
 
 @dataclass(frozen=True)
 class CandidateInfo:
     """Raw target geometry before user offsets and IME quirks are applied."""
 
-    area: object
-    region: object
     space: object
     screen_x: int
     screen_y: int
     line_height: int
     rect: object
-    text: object = None
-    obj: object = None
     line: int = 0
     column: int = 0
-    region_x: int = 0
-    region_y: int = 0
 
 
 @dataclass(frozen=True)
@@ -121,10 +115,6 @@ class CandidatePosition:
 
     screen_x: int
     screen_y: int
-    char_width: int = 0
-    requested_x_offset: int = 0
-    manual_x_offset: int = 0
-    manual_y_offset: int = 0
 
 
 def target_type(target: object) -> object:

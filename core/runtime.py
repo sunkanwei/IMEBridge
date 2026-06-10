@@ -33,18 +33,37 @@ class SpaceSuppressionState:
 
 
 @dataclass
+class SpaceConfirmState:
+    """A recent Space key sequence that belongs to IME confirmation."""
+
+    hwnd: int = 0
+    until: float = 0.0
+
+    def clear(self) -> None:
+        """Forget the recent Space confirmation marker."""
+        self.hwnd = 0
+        self.until = 0.0
+
+
+@dataclass
 class FontResultDedupState:
     """Last 3D Text commit seen through the character-message fallback."""
 
     target_key: int = 0
     text: str = ""
+    echo_index: int = 0
     until: float = 0.0
 
     def clear(self) -> None:
         """Forget the last fallback commit."""
         self.target_key = 0
-        self.text = ""
+        self.clear_echo()
         self.until = 0.0
+
+    def clear_echo(self) -> None:
+        """Stop duplicate-character suppression but keep target trust intact."""
+        self.text = ""
+        self.echo_index = 0
 
 
 @dataclass
@@ -63,6 +82,7 @@ class InputScopeState:
 
     current_kind: str = "neutral"
     current_area_type: str = ""
+    native_text_ui_handoff: bool = False
     pending_scope: object = None
     scope_timer_registered: bool = False
     managed_open_status: dict[int, ManagedImeState] = field(default_factory=dict)
@@ -71,6 +91,7 @@ class InputScopeState:
         """Drop delayed scope work and remembered IME state."""
         self.current_kind = "neutral"
         self.current_area_type = ""
+        self.native_text_ui_handoff = False
         self.pending_scope = None
         self.scope_timer_registered = False
         self.managed_open_status.clear()
@@ -80,13 +101,11 @@ class InputScopeState:
 class TextImeSessionState:
     """Current Text Editor IME session and commit generation."""
 
-    next_id: int = 0
     current: models.TextImeSession | None = None
     commit_generation: int = 0
 
     def clear(self) -> None:
         """Forget all Text Editor IME session bookkeeping."""
-        self.next_id = 0
         self.current = None
         self.commit_generation = 0
 
@@ -103,7 +122,6 @@ class TextImeSessionState:
         replace_end: int,
     ) -> models.TextImeSession:
         """Create and remember a new Text Editor IME session."""
-        self.next_id += 1
         self.current = models.TextImeSession(
             text=text,
             body=body,
@@ -113,7 +131,6 @@ class TextImeSessionState:
             select_column=select_column,
             replace_start=replace_start,
             replace_end=replace_end,
-            session_id=self.next_id,
         )
         return self.current
 
@@ -139,6 +156,7 @@ class RuntimeState:
 
     win: object = None
     hooks: dict = field(default_factory=dict)
+    detached_hooks: list = field(default_factory=list)
 
     insert_on_commit: bool = False
     pending_inserts: deque = field(default_factory=deque)
@@ -163,6 +181,7 @@ class RuntimeState:
     space_suppression: SpaceSuppressionState = field(
         default_factory=SpaceSuppressionState
     )
+    space_confirm: SpaceConfirmState = field(default_factory=SpaceConfirmState)
     font_result_dedup: FontResultDedupState = field(
         default_factory=FontResultDedupState
     )
@@ -180,6 +199,7 @@ class RuntimeState:
         self.composition_target = None
         self.ime_activity.clear()
         self.space_suppression.clear()
+        self.space_confirm.clear()
         self.font_result_dedup.clear()
         self.input_scope.clear()
 
