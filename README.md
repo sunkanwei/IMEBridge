@@ -1,107 +1,81 @@
 <div align="center">
 
-# IMEBridge
+# ⌨️ IMEBridge (输入法桥接助手)
 
-让 Blender 的文本编辑体验真正支持中文输入法。
+**为 Blender 打造的原生中文输入体验，让汉字键入如丝般顺滑。**
 
-[![Blender](https://img.shields.io/badge/Blender-5.0--5.2-E87D0D?style=for-the-badge&logo=blender&logoColor=white)](https://www.blender.org/)
-[![Platform](https://img.shields.io/badge/Windows%20%2F%20macOS-0078D4?style=for-the-badge)](https://www.blender.org/)
-[![License](https://img.shields.io/badge/License-GPL--3.0--or--later-2E7D32?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0.html)
+[![Blender Version](https://img.shields.io/badge/Blender-5.0%20%7C%205.1%20%7C%205.2-orange?style=flat-squared&logo=blender&logoColor=white)](https://www.blender.org/)
+[![Platform Support](https://img.shields.io/badge/平台-Windows%20x64%20%7C%20macOS%20arm64-blue?style=flat-squared)](https://www.blender.org/)
+[![License](https://img.shields.io/badge/协议-GPL%203.0-green?style=flat-squared)](https://www.gnu.org/licenses/gpl-3.0.html)
 
-适用于 Blender 文本编辑器和 3D 文字编辑模式的 IME 桥接扩展。
-
-[个人主页](https://space.bilibili.com/28036907) · [架构说明](./ARCHITECTURE.md)
+[✨ 核心功能](#-核心功能) · [💻 兼容范围](#-兼容范围) · [🚀 安装使用](#-安装与使用) · [⚙️ 个性化设置](#-个性化设置)
 
 </div>
 
-## 它解决什么问题
+---
 
-Blender 的部分文本编辑场景对中文输入法并不友好，尤其是在文本编辑器和 3D 文字编辑模式里，候选框位置、确认输入、快捷键状态容易出现割裂。
+## 💡 为什么需要 IMEBridge？
 
-IMEBridge 在 Blender 与系统 IME 之间建立一层轻量桥接，让中文输入更接近日常桌面软件里的体验：候选框跟随文本位置、确认文本稳定写入、快捷键区域自动回到直接输入状态。
+在 Blender 中进行文本编辑（例如使用**文本编辑器**编写 Python 脚本，或在 **3D 视图中编辑 3D 文字**）时，输入中文一直是一个痛点：
+* ❌ **无法唤起输入法**：常常只能强行输入英文字符，或者输入法候选框无法正常呼出。
+* ❌ **候选框位置错乱**：输入法候选框经常遗留在屏幕角落，视线需要频繁来回移动。
+* ❌ **快捷键状态冲突**：输入完中文后，由于没有自动切回英文状态，导致 Blender 的各种快捷键失效或误触。
 
-## 功能亮点
+**IMEBridge** 在 Blender 和系统原生输入法（IME）之间建立起了一座轻量级的桥梁。它不需要你改变打字习惯，安装后即可直接在 Blender 内部顺畅、自然地使用系统输入法输入中文。
 
-| 能力 | 说明 |
-| --- | --- |
-| 文本编辑器输入 | 支持 Blender Text Editor 中的中文输入、提交和光标位置处理 |
-| 3D 文字编辑 | 支持 3D Text edit mode 中直接输入中文 |
-| 候选框定位 | 将 IME 候选框移动到更接近当前文本光标的位置 |
-| 快捷键保护 | 在快捷键密集的编辑区域临时关闭插件控制的 IME 状态 |
-| 自动启用 | 扩展启用后自动挂接当前 Blender 窗口，无需手动按钮 |
-| 安全回退 | 非 Windows 或后台环境下保持无操作，避免影响 Blender 启动 |
+---
 
-## 兼容范围
+## ✨ 核心功能
 
-| 项目 | 支持情况 |
-| --- | --- |
-| Blender | 5.0.x、5.1.x、5.2.x |
-| 系统 | Windows x64、macOS arm64 |
-| 扩展格式 | Blender Extension |
-| 输入法 | Windows IME / IMM32、macOS Cocoa IME |
+### 🎯 候选框智能跟随 (Candidate Follow)
+输入法的候选字窗口会实时、精准地定位在您当前的文本光标下方。打字时视线无需离开编辑区域，体验媲美专业的文本编辑器。
 
-## 安装方式
+### 🛡️ 快捷键自动避让 (Smart Hotkey Protection)
+当您的鼠标离开文本编辑区，点击 3D 视图等依赖快捷键的操作区域时，插件会自动将当前窗口的输入法状态临时切换为英文，确保 Blender 的原生快捷键免受中文输入法干扰；而当您重新回到文本编辑区时，又会自动恢复您的输入状态。
 
-1. 下载发布页中的 `IMEBridge-版本号.zip`。
-2. 打开 Blender，进入 `Edit > Preferences > Extensions`。
-3. 使用 `Install from Disk` 选择 zip 文件。
-4. 启用 `IMEBridge`。
-5. 打开 Text Editor 或进入 3D Text edit mode，切换中文输入法开始输入。
+### ⚡ 无感自动启用 (Seamless Integration)
+插件启用后，会自动挂接当前的 Blender 窗口并开始工作。无需手动点击任何“激活”按钮，一切都在后台默默完成。
 
-## 可调设置
+### 📝 多场景深度支持 (Rich Editing Modes)
+* **Text Editor (文本编辑器)**：支持编写中文注释、字符串，完美处理回车提交与光标定位。
+* **3D Text Edit (3D 文字编辑模式)**：支持在 3D 视图中直接呼出输入法，为 3D 艺术字体、排版直接键入中文。
 
-在 Blender 的扩展偏好设置中可以调整：
+---
 
-- 显示语言
-- 候选框 X / Y 偏移
-- 是否在输入开始前预定位候选框
-- 是否使用输入法请求的字符偏移
-- 是否在快捷键区域自动切换为英文输入状态
+## 💻 兼容范围
 
-默认配置偏向“安装后直接可用”。如果候选框在不同缩放比例、显示器或输入法下略有偏移，可以优先调整 X / Y 偏移。
+| 项目 | 支持范围 | 备注 |
+| :--- | :--- | :--- |
+| **Blender 版本** | `5.0.x`、`5.1.x`、`5.2.x` | 适配最新的 Blender 插件扩展标准 |
+| **操作系统** | Windows x64、macOS arm64 (Apple Silicon) | 深度对接系统底层 API |
+| **输入法支持** | 微软拼音、macOS 原生输入法、搜狗、百度、Rime 等 | 兼容所有遵循系统标准接口的输入法 |
 
-## 设计边界
+---
 
-IMEBridge 只处理明确支持的 Blender 文本目标：
+## 🚀 安装与使用
 
-- Text Editor
-- 3D Text edit mode
+1. **获取发布包**：下载最新版本的 `IMEBridge-x.x.x.zip` 发布文件。
+2. **安装插件**：
+   * 打开 Blender，依次点击菜单栏 `Edit (编辑) > Preferences (偏好设置) > Extensions (扩展)`。
+   * 点击右上角的箭头菜单，选择 `Install from Disk (从磁盘安装)`，选中下载的 `.zip` 文件。
+3. **启用并打字**：
+   * 勾选启用 `IMEBridge`。
+   * 打开 Blender 文本编辑器，或者在 3D 视图中添加文本并按 `Tab` 进入编辑模式，切换中文输入法，即可开始顺畅打字！
 
-它不会猜测或接管 Blender 原生 UI 输入框，也不会主动修改用户文件、安装依赖、联网下载内容或写入扩展安装目录。
+---
 
-## 开发结构
+## ⚙️ 个性化设置
 
-```text
-IMEBridge/
-├─ blender_manifest.toml
-├─ __init__.py
-├─ bridge/       # 窗口挂钩、Mac 事件桥、IME 消息路由和输入状态切换
-├─ core/         # 运行时状态、数据模型和安全清理
-├─ platforms/    # 平台后端选择，以及暂未支持平台的安全空实现
-├─ preferences/  # 扩展偏好设置与界面文本
-├─ targets/      # Blender 文本目标识别与文本写入
-└─ win32/        # Win32 / IMM32 ctypes 绑定
-```
+在 Blender 的插件偏好设置中，您可以根据屏幕缩放、使用习惯调整以下参数：
 
-更完整的内部流程见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+* **显示语言 (Language)**：支持简体中文、繁体中文、英文、日语、韩语等界面语言。
+* **候选框位置偏移 (X/Y Offset)**：若因显示器缩放、分辨率或特定输入法皮肤导致候选框定位不准，可微调 X/Y 轴像素偏移量。
+* **提前定位候选框 (Pre-position)**：在打字前就预先锁定输入法候选窗口位置，避免首字输入时窗口闪烁。
+* **叠加组合字符偏移 (Composition Offset)**：使用输入法反馈的内部字符长度进行更精细的位移定位。
+* **快捷键区域自动英文**：开启后，鼠标移至快捷键密集区时自动闭合中文输入状态，防止快捷键误触。
 
-## 打包说明
+---
 
-`README.md` 只用于 GitHub 项目首页展示，不会打进 Blender Extension 发布包。
+## 📄 开源协议
 
-发布包内容由 `blender_manifest.toml` 的 `[build].paths` 白名单控制；构建时只包含运行扩展所需的 Python 模块、Manifest 和架构说明，避免把展示文档、本地 Git 仓库、缓存文件或临时文件带入最终 zip。
-
-常用验证命令：
-
-```powershell
-blender --factory-startup --command extension validate path\to\IMEBridge
-blender --factory-startup --command extension build --source-dir path\to\IMEBridge
-```
-
-Windows 下也可以直接双击 `build_extension.bat`，它会调用 Blender 官方构建命令，把 `IMEBridge-版本号.zip` 输出到桌面，并检查发布包没有包含 README、bat 或 Python 缓存文件。
-
-macOS 下可以在终端或 Finder 中运行 `build_extension.command`。如果首次复制后 Finder 提示没有执行权限，先运行 `chmod +x build_extension.command`；如果 Blender 没有安装在 `/Applications/Blender.app`，可以先设置 `BLENDER_EXE` 指向 Blender 可执行文件。
-
-## 许可证
-
-IMEBridge 以 `GPL-3.0-or-later` 许可发布。使用、修改和分发时请遵守对应开源许可证要求。
+本插件采用 [GPL-3.0-or-later](file:///Users/sunkanwei/Library/Application%20Support/Blender/5.1/extensions/user_default/IMEBridge/LICENSE) 开源许可协议发布。您可以自由地使用、修改和分发。

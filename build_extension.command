@@ -80,7 +80,7 @@ check_manifest_python_paths() {
         if ! grep -Fq "\"$rel\"" "$MANIFEST"; then
             missing+="$rel"$'\n'
         fi
-    done < <(find "$EXT_DIR" -type f -name "*.py" ! -path "*/__pycache__/*" | sort)
+    done < <(find "$EXT_DIR" -type f -name "*.py" ! -path "*/__pycache__/*" ! -path "*/.serena/*" | sort)
 
     if [ -n "$missing" ]; then
         echo "ERROR: Python files missing from [build].paths:"
@@ -96,7 +96,7 @@ check_package_contents() {
     fi
 
     local bad
-    bad="$(unzip -Z1 "$ZIP_PATH" | grep -E '(^|/)README\.md$|(^|/)build_extension\.(bat|command|sh)$|(^|/)\.git(/|$)|__pycache__|\.pyc$|\.(bat|command|sh)$' || true)"
+    bad="$(unzip -Z1 "$ZIP_PATH" | grep -E '(^|/)README\.md$|(^|/)build_extension\.(bat|command|sh)$|(^|/)\.git(/|$)|(^|/)\.serena(/|$)|(^|/)\.DS_Store$|__pycache__|\.pyc$|\.(bat|command|sh)$' || true)"
     if [ -n "$bad" ]; then
         echo "ERROR: package contains excluded files:"
         printf "%s\n" "$bad" | sed 's/^/  /'
@@ -127,7 +127,7 @@ echo "Checking manifest Python paths..."
 check_manifest_python_paths
 
 echo "Checking package exclusions..."
-echo "README.md, build scripts, .git, __pycache__, and .pyc files are outside [build].paths."
+echo "README.md, build scripts, .git, .serena, .DS_Store, __pycache__, and .pyc files are outside [build].paths."
 
 if [ -f "$ZIP_PATH" ]; then
     echo "Removing previous package on Desktop..."
@@ -153,5 +153,5 @@ echo "Done."
 echo "Created: $ZIP_PATH"
 echo
 echo "The package is built by Blender's official extension command."
-echo "README.md, build scripts, .git, __pycache__, and .pyc files were not included."
+echo "README.md, build scripts, .git, .serena, .DS_Store, __pycache__, and .pyc files were not included."
 pause_and_exit 0

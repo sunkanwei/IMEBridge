@@ -18,7 +18,7 @@ tags = ["System", "Text Editor", "User Interface"]
 platforms = ["windows-x64", "macos-arm64"]
 
 [build]
-# README.md, build scripts, and .git/ are intentionally omitted.
+# README.md, build scripts, .git/, .serena/, and .DS_Store are intentionally omitted.
 paths = [
   "__init__.py",
   "bridge/__init__.py",
