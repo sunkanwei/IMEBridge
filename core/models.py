@@ -50,12 +50,19 @@ class TextImeSession:
     body: str
     line: int
     column: int
+    select_line: int
+    select_column: int
+    replace_start: int
+    replace_end: int
     session_id: int
     committed: bool = False
 
     def owns_text(self, text_data: object) -> bool:
         """Check whether this session still belongs to the given Text datablock."""
-        return self.text == text_data
+        try:
+            return self.text == text_data
+        except (ReferenceError, RuntimeError):
+            return False
 
     def mark_committed(self) -> bool:
         """Mark the session as committed, returning whether this changed state."""
@@ -74,6 +81,8 @@ class TextRestoreSnapshot:
     body: str
     line: int
     column: int
+    select_line: int
+    select_column: int
     session: object = None
     commit_generation: int = 0
 

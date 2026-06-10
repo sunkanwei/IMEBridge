@@ -95,6 +95,10 @@ class TextImeSessionState:
         body: str,
         line: int,
         column: int,
+        select_line: int,
+        select_column: int,
+        replace_start: int,
+        replace_end: int,
     ) -> models.TextImeSession:
         """Create and remember a new Text Editor IME session."""
         self.next_id += 1
@@ -103,6 +107,10 @@ class TextImeSessionState:
             body=body,
             line=line,
             column=column,
+            select_line=select_line,
+            select_column=select_column,
+            replace_start=replace_start,
+            replace_end=replace_end,
             session_id=self.next_id,
         )
         return self.current

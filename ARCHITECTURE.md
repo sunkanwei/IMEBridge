@@ -31,9 +31,12 @@ Text Editor find, are treated as neutral before Blender handles them.
 Known add-on surfaces such as NexusUI are also classified as neutral before the
 shortcut-canvas rule when their own visible UI layers are hit.
 
-The Text Editor path records the composition start position, protects the text
-buffer from IME editing keys, removes leaked confirmation spaces, and inserts
-the committed result at the original cursor location.
+The Text Editor path records the composition start body and selection range,
+protects the text buffer from IME editing keys, removes leaked confirmation
+spaces, and commits the IME result as a small text transaction. The transaction
+first tries Blender's Text Editor operator, then verifies the expected body and
+falls back to rebuilding the Text datablock when the operator cannot preserve
+the saved replacement semantics.
 
 The 3D Text path intentionally uses a different strategy. It suppresses the
 confirmation space at the Win32 message layer before Blender's native font edit

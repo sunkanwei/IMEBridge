@@ -11,73 +11,145 @@ from . import detect as targets
 TEXT_RESTORE_TIMER_INTERVAL = 0.02
 
 
-def capture_composition_start(target: object) -> models.TextImeSession | None:
-    """Start a Text Editor IME session at the current cursor."""
-    if not models.is_text_editor_target(target) or target.text is None:
+def text_data_from_target(target: object) -> object | None:
+    """Return a target's Text datablock without trusting stale RNA."""
+    if not models.is_text_editor_target(target):
         return None
-    body = safe_ops.maybe_get_text_body(target.text)
+    try:
+        return target.text
+    except (AttributeError, ReferenceError, RuntimeError):
+        return None
+
+
+def session_text_data(target: object, text_session: object) -> object | None:
+    """Return target text only when the IME session still owns it."""
+    text_data = text_data_from_target(target)
+    if (
+        text_data is None
+        or not isinstance(text_session, models.TextImeSession)
+        or not text_session.owns_text(text_data)
+    ):
+        return None
+    return text_data
+
+
+def same_text_data(left: object, right: object) -> bool:
+    """Compare Text datablocks without trusting stale RNA references."""
+    try:
+        return left == right
+    except (ReferenceError, RuntimeError):
+        return False
+
+
+def capture_composition_start(target: object) -> models.TextImeSession | None:
+    """Start a Text Editor IME session with the current replacement range."""
+    text_data = text_data_from_target(target)
+    if text_data is None:
+        return None
+    body = safe_ops.maybe_get_text_body(text_data)
     if body is None:
         return None
     try:
-        return runtime.state.text_ime_session.begin(
-            text=target.text,
-            body=body,
-            line=int(target.text.current_line_index),
-            column=int(target.text.current_character),
+        line = int(text_data.current_line_index)
+        column = int(text_data.current_character)
+        select_line = int(getattr(text_data, "select_end_line_index", line))
+        select_column = int(getattr(text_data, "select_end_character", column))
+        offsets = text_selection_offsets(
+            body,
+            line,
+            column,
+            select_line,
+            select_column,
         )
-    except (AttributeError, ReferenceError, RuntimeError):
+        if offsets is None:
+            return None
+        replace_start, replace_end = offsets
+        return runtime.state.text_ime_session.begin(
+            text=text_data,
+            body=body,
+            line=line,
+            column=column,
+            select_line=select_line,
+            select_column=select_column,
+            replace_start=replace_start,
+            replace_end=replace_end,
+        )
+    except (AttributeError, ReferenceError, RuntimeError, ValueError):
         return None
 
 
 def capture_restore_snapshot(target: object) -> models.TextRestoreSnapshot | None:
     """Save enough state to undo IME edit-key leaks cleanly."""
-    if not models.is_text_editor_target(target) or target.text is None:
+    text_data = text_data_from_target(target)
+    if text_data is None:
         return None
 
-    body = safe_ops.maybe_get_text_body(target.text)
+    body = safe_ops.maybe_get_text_body(text_data)
     if body is None:
         return None
 
     try:
+        line = int(text_data.current_line_index)
+        column = int(text_data.current_character)
         return models.TextRestoreSnapshot(
             target=target,
-            text=target.text,
+            text=text_data,
             body=body,
-            line=int(target.text.current_line_index),
-            column=int(target.text.current_character),
-            session=active_text_session(target.text),
+            line=line,
+            column=column,
+            select_line=int(getattr(text_data, "select_end_line_index", line)),
+            select_column=int(getattr(text_data, "select_end_character", column)),
+            session=active_text_session(text_data),
             commit_generation=runtime.state.text_ime_session.commit_generation,
         )
-    except (AttributeError, ReferenceError, RuntimeError):
+    except (AttributeError, ReferenceError, RuntimeError, ValueError):
         return None
 
 
 def clamped_text_cursor(text_data: object, line: int, column: int) -> tuple[int, int]:
     """Clamp a cursor that may be stale by the time Blender handles it."""
+    if len(text_data.lines) == 0:
+        return 0, 0
     line = max(0, min(int(line), len(text_data.lines) - 1))
     column = max(0, int(column))
     column = min(column, len(text_data.lines[line].body))
     return line, column
 
 
-def set_text_cursor(text_data: object, line: int, column: int) -> bool:
-    """Move the cursor defensively across editor and datablock changes."""
+def set_text_selection(
+    text_data: object,
+    line: int,
+    column: int,
+    select_line: int,
+    select_column: int,
+) -> bool:
+    """Restore a Text selection defensively across editor changes."""
     try:
         line, column = clamped_text_cursor(text_data, line, column)
+        select_line, select_column = clamped_text_cursor(
+            text_data,
+            select_line,
+            select_column,
+        )
         select_set = getattr(text_data, "select_set", None)
         if callable(select_set):
-            select_set(line, column, line, column)
+            select_set(line, column, select_line, select_column)
         else:
             text_data.current_line_index = line
             text_data.current_character = column
             try:
-                text_data.select_end_line_index = line
-                text_data.select_end_character = column
+                text_data.select_end_line_index = select_line
+                text_data.select_end_character = select_column
             except (AttributeError, RuntimeError):
                 pass
         return True
     except (AttributeError, IndexError, ReferenceError, RuntimeError, ValueError):
         return False
+
+
+def set_text_cursor(text_data: object, line: int, column: int) -> bool:
+    """Move the cursor defensively across editor and datablock changes."""
+    return set_text_selection(text_data, line, column, line, column)
 
 
 def restore_text_state(snapshot: models.TextRestoreSnapshot) -> bool:
@@ -87,6 +159,8 @@ def restore_text_state(snapshot: models.TextRestoreSnapshot) -> bool:
         snapshot.body,
         snapshot.line,
         snapshot.column,
+        snapshot.select_line,
+        snapshot.select_column,
     )
 
 
@@ -95,8 +169,10 @@ def restore_text_body(
     body: str,
     line: int,
     column: int,
+    select_line: int | None = None,
+    select_column: int | None = None,
 ) -> bool:
-    """Replace the whole Text datablock, then restore a known-safe cursor."""
+    """Replace the whole Text datablock, then restore a known-safe selection."""
     if text_data is None:
         return False
     try:
@@ -104,7 +180,11 @@ def restore_text_body(
         text_data.write(body)
     except (AttributeError, ReferenceError, RuntimeError):
         return False
-    return set_text_cursor(text_data, line, column)
+    if select_line is None:
+        select_line = line
+    if select_column is None:
+        select_column = column
+    return set_text_selection(text_data, line, column, select_line, select_column)
 
 
 def text_position_to_offset(body: str, line: int, column: int) -> int:
@@ -129,32 +209,44 @@ def text_offset_to_position(body: str, offset: int) -> tuple[int, int]:
     return line, offset - line_start
 
 
-def text_cursor_offsets(text_data: object, body: str) -> tuple[int, int] | None:
-    """Return the sorted replacement range represented by the Text selection."""
+def text_selection_offsets(
+    body: str,
+    line: int,
+    column: int,
+    select_line: int,
+    select_column: int,
+) -> tuple[int, int] | None:
+    """Return sorted offsets for a Text selection in ``body``."""
     try:
-        select_line = getattr(
-            text_data,
-            "select_end_line_index",
-            text_data.current_line_index,
-        )
-        select_column = getattr(
-            text_data,
-            "select_end_character",
-            text_data.current_character,
-        )
-        current = text_position_to_offset(
-            body,
-            int(text_data.current_line_index),
-            int(text_data.current_character),
-        )
+        current = text_position_to_offset(body, int(line), int(column))
         selected = text_position_to_offset(
             body,
             int(select_line),
             int(select_column),
         )
-    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+    except (TypeError, ValueError):
         return None
     return min(current, selected), max(current, selected)
+
+
+def text_selection_position(text_data: object) -> tuple[int, int, int, int] | None:
+    """Read the current Text selection endpoints."""
+    try:
+        line = int(text_data.current_line_index)
+        column = int(text_data.current_character)
+        select_line = int(getattr(text_data, "select_end_line_index", line))
+        select_column = int(getattr(text_data, "select_end_character", column))
+    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+        return None
+    return line, column, select_line, select_column
+
+
+def text_cursor_offsets(text_data: object, body: str) -> tuple[int, int] | None:
+    """Return the sorted replacement range represented by the Text selection."""
+    selection = text_selection_position(text_data)
+    if selection is None:
+        return None
+    return text_selection_offsets(body, *selection)
 
 
 def insert_text_body_at_cursor(text_data: object, text: str) -> bool:
@@ -173,10 +265,16 @@ def insert_text_body_at_cursor(text_data: object, text: str) -> bool:
 
 
 def restore_text_cursor(snapshot: models.TextRestoreSnapshot) -> bool:
-    """Move only the caret when the text body stayed intact."""
+    """Move only the selection when the text body stayed intact."""
     if snapshot.text is None:
         return False
-    return set_text_cursor(snapshot.text, snapshot.line, snapshot.column)
+    return set_text_selection(
+        snapshot.text,
+        snapshot.line,
+        snapshot.column,
+        snapshot.select_line,
+        snapshot.select_column,
+    )
 
 
 def restore_text_after_ime_edit_key() -> None:
@@ -193,17 +291,21 @@ def restore_text_after_ime_edit_key() -> None:
     if current_body is None:
         return None
 
-    try:
-        current_line = int(snapshot.text.current_line_index)
-        current_column = int(snapshot.text.current_character)
-    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+    selection = text_selection_position(snapshot.text)
+    if selection is None:
         return None
 
     if current_body != snapshot.body:
         restore_text_state(snapshot)
         return None
 
-    if current_line != snapshot.line or current_column != snapshot.column:
+    snapshot_selection = (
+        snapshot.line,
+        snapshot.column,
+        snapshot.select_line,
+        snapshot.select_column,
+    )
+    if selection != snapshot_selection:
         restore_text_cursor(snapshot)
     return None
 
@@ -265,7 +367,7 @@ def clear_matching_restore_guard(
     guard = runtime.state.text_restore_guard
     if (
         isinstance(guard, models.TextRestoreSnapshot)
-        and guard.text == text_data
+        and same_text_data(guard.text, text_data)
         and (guard.session is None or guard.session is session)
     ):
         runtime.state.text_restore_guard = None
@@ -290,82 +392,106 @@ def mark_composition_committed(
     )
 
 
-def prepare_composition_commit(
+def restore_composition_baseline(
     target: object,
     text_session: object,
 ) -> bool:
-    """Restore the pre-composition baseline before inserting the IME result."""
-    if (
-        not models.is_text_editor_target(target)
-        or not isinstance(text_session, models.TextImeSession)
-        or not text_session.owns_text(target.text)
-    ):
+    """Restore the pre-composition body and selection."""
+    text_data = session_text_data(target, text_session)
+    if text_data is None:
         return False
 
-    mark_composition_committed(text_session)
-    current_body = safe_ops.maybe_get_text_body(target.text)
+    current_body = safe_ops.maybe_get_text_body(text_data)
     if current_body is None:
         return False
     if current_body != text_session.body:
         return restore_text_body(
-            target.text,
+            text_data,
             text_session.body,
             text_session.line,
             text_session.column,
+            text_session.select_line,
+            text_session.select_column,
         )
-    return set_text_cursor(
-        target.text,
+    return set_text_selection(
+        text_data,
         text_session.line,
         text_session.column,
+        text_session.select_line,
+        text_session.select_column,
     )
 
 
-def has_leaked_confirm_space(target: object, text_session: object) -> bool:
-    """Detect the classic leak: confirm Space also became real text."""
-    if (
-        not models.is_text_editor_target(target)
-        or not isinstance(text_session, models.TextImeSession)
-        or not text_session.owns_text(target.text)
-    ):
-        return False
-
-    try:
-        line = int(target.text.current_line_index)
-        column = int(target.text.current_character)
-        if (
-            line != text_session.line
-            or column != text_session.column + 1
-            or column <= 0
-        ):
-            return False
-        body = target.text.lines[line].body
-        return column <= len(body) and body[column - 1] == " "
-    except (AttributeError, IndexError, ReferenceError, RuntimeError, ValueError):
-        return False
+def text_session_replacement_offsets(
+    text_session: models.TextImeSession,
+) -> tuple[int, int]:
+    """Clamp a session replacement range to its saved body."""
+    body_length = len(text_session.body)
+    start = max(0, min(int(text_session.replace_start), body_length))
+    end = max(0, min(int(text_session.replace_end), body_length))
+    return min(start, end), max(start, end)
 
 
-def delete_confirm_space_before_insert(
+def text_session_commit_result(
+    text_session: models.TextImeSession,
+    text: str,
+) -> tuple[str, int, int]:
+    """Return the committed body and collapsed cursor for an IME session."""
+    start, end = text_session_replacement_offsets(text_session)
+    new_body = text_session.body[:start] + text + text_session.body[end:]
+    line, column = text_offset_to_position(new_body, start + len(text))
+    return new_body, line, column
+
+
+def insert_text_session_result(
     target: object,
+    text: str,
     text_session: object,
+    *,
+    use_operator: bool,
 ) -> bool:
-    """Remove the leaked Space while the Text operator context is active."""
-    if not has_leaked_confirm_space(target, text_session):
+    """Commit text by applying the session's saved replacement range."""
+    text_data = session_text_data(target, text_session)
+    if text_data is None:
         return False
-    if not bpy.ops.text.delete.poll():
-        return False
-    bpy.ops.text.delete(type="PREVIOUS_CHARACTER")
-    return True
+
+    expected_body, cursor_line, cursor_column = text_session_commit_result(
+        text_session,
+        text,
+    )
+    mark_composition_committed(text_session)
+
+    if use_operator and restore_composition_baseline(target, text_session):
+        try:
+            if bpy.ops.text.insert.poll():
+                bpy.ops.text.insert(text=text)
+                if safe_ops.maybe_get_text_body(text_data) == expected_body:
+                    return set_text_cursor(
+                        text_data,
+                        cursor_line,
+                        cursor_column,
+                    )
+        except (AttributeError, ReferenceError, RuntimeError):
+            pass
+
+    return restore_text_body(
+        text_data,
+        expected_body,
+        cursor_line,
+        cursor_column,
+    )
 
 
 def insert(text: str, target: object, text_session: object = None) -> bool:
     """Commit IME text through Blender's Text Editor operator."""
-    if not models.is_text_editor_target(target):
+    text_data = text_data_from_target(target)
+    if text_data is None:
         return False
 
     context = targets.target_context(target)
-    if context is None or context["space"] is None or target.text is None:
+    if context is None or context["space"] is None:
         return False
-    if getattr(context["space"], "text", None) != target.text:
+    if getattr(context["space"], "text", None) != text_data:
         return False
 
     with bpy.context.temp_override(
@@ -375,14 +501,26 @@ def insert(text: str, target: object, text_session: object = None) -> bool:
         region=context["region"],
         space_data=context["space"],
     ):
+        if isinstance(text_session, models.TextImeSession):
+            return insert_text_session_result(
+                target,
+                text,
+                text_session,
+                use_operator=True,
+            )
+
         if bpy.ops.text.insert.poll():
-            if not prepare_composition_commit(target, text_session):
-                delete_confirm_space_before_insert(target, text_session)
             bpy.ops.text.insert(text=text)
             return True
 
     try:
-        prepare_composition_commit(target, text_session)
-        return insert_text_body_at_cursor(target.text, text)
+        if isinstance(text_session, models.TextImeSession):
+            return insert_text_session_result(
+                target,
+                text,
+                text_session,
+                use_operator=False,
+            )
+        return insert_text_body_at_cursor(text_data, text)
     except (AttributeError, ReferenceError, RuntimeError):
         return False
