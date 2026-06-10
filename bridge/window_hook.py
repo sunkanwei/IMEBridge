@@ -24,6 +24,8 @@ def initialize_input_bridge(context: object = None) -> tuple[int, int]:
     target = targets.make_input_target_from_context(context)
     if target is None:
         target = targets.find_font_edit_target(context)
+    if target is None and platform_api.backend_name() == "macos":
+        target = targets.find_text_editor_target(context)
     if target is not None:
         target_state.set_active_target(target)
 
@@ -86,7 +88,7 @@ def cancel_auto_enable() -> None:
 
 
 def _macos_bridge_running() -> bool:
-    """Check the modal macOS bridge only when that backend is selected."""
+    """Check the macOS bridge only when that backend is selected."""
     if platform_api.backend_name() != "macos":
         return False
     from . import macos_event_bridge

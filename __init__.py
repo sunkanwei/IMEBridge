@@ -1,7 +1,7 @@
 import bpy
 
 from .bridge import ime_context
-from .bridge import macos_event_bridge
+from .bridge import macos_debug_panel
 from .bridge import window_hook
 from .preferences import config
 from .preferences import i18n
@@ -9,7 +9,7 @@ from .preferences import i18n
 
 _REGISTERED_CLASSES = (
     config.IMEBridgePreferences,
-    macos_event_bridge.IMEBRIDGE_OT_macos_event_bridge,
+    *macos_debug_panel.CLASSES,
 )
 
 
@@ -27,6 +27,7 @@ def register() -> None:
     registered_classes = []
     try:
         i18n.register()
+        macos_debug_panel.register_properties()
         for cls in _REGISTERED_CLASSES:
             bpy.utils.register_class(cls)
             registered_classes.append(cls)
@@ -37,6 +38,7 @@ def register() -> None:
         ime_context.unregister_text_draw_handler()
         window_hook.stop_hooks()
         _unregister_classes(registered_classes)
+        macos_debug_panel.unregister_properties()
         i18n.unregister()
         raise
 
@@ -47,4 +49,5 @@ def unregister() -> None:
     ime_context.unregister_text_draw_handler()
     window_hook.stop_hooks()
     _unregister_classes(_REGISTERED_CLASSES)
+    macos_debug_panel.unregister_properties()
     i18n.unregister()

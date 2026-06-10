@@ -16,6 +16,8 @@ buttons after installation.
 - `win32/`: Win32, IMM32, window enumeration, and coordinate conversion.
 - `bridge/`: window hooks, message routing, IME scope switching,
   positioning, and guards.
+- `bridge/macos_debug_panel.py`: macOS diagnostic sidebar for testing Cocoa
+  view discovery, `beginIME`, and committed text callbacks before wiring fixes.
 - `targets/`: Blender target discovery plus Text Editor and 3D Text insertion.
 
 ## Input Flow
@@ -24,10 +26,11 @@ During registration, the add-on schedules automatic enablement only when the
 selected native backend reports that it supports a real bridge. The Windows
 backend restores IME contexts for Blender windows, hooks the main GHOST window
 procedure, and routes supported Win32 and IME messages through Blender-aware
-target handling. The macOS backend starts a hidden modal operator, receives
-public `TEXTINPUT` events, and uses Blender's Cocoa view `beginIME` / `endIME`
-entry points for IME focus and candidate placement. Unsupported platforms use
-the no-op backend so registration, preferences, and cleanup stay safe without
+target handling. The macOS backend installs a Cocoa `insertText:replacementRange:`
+callback on Blender's text-input views, mirrors committed text into the shared
+insertion queue, and uses Blender's Cocoa view `beginIME` / `endIME` entry
+points for IME focus and candidate placement. Unsupported platforms use the
+no-op backend so registration, preferences, and cleanup stay safe without
 pretending input is handled.
 
 Mouse clicks are classified into three scopes: supported text targets,

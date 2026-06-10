@@ -1,4 +1,4 @@
-"""macOS modal event bridge built on Blender's Cocoa IME support."""
+"""macOS event bridge backed by Blender's Cocoa text input callbacks."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import time
 import bpy
 
 from . import ime_context
-from . import input_scope
 from ..core import models
 from ..core import runtime
+from ..core import safe_ops
 from ..targets import detect as targets
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
@@ -17,13 +17,11 @@ from ..targets import text as text_target
 from ..platforms import native as platform_api
 
 
-MOUSE_PRESS_EVENTS = {"LEFTMOUSE", "MIDDLEMOUSE", "RIGHTMOUSE"}
-CANDIDATE_REFRESH_SECONDS = 0.05
+TARGET_POLL_INTERVAL = 0.05
+CANDIDATE_REFRESH_SECONDS = 0.12
 
 _RUNNING = False
-_STOP_REQUESTED = False
-_OPERATOR = None
-_GENERATION = 0
+_TIMER_REGISTERED = False
 _LAST_CANDIDATE_REFRESH = 0.0
 
 
@@ -36,8 +34,8 @@ def is_available() -> bool:
 
 
 def is_running() -> bool:
-    """Return whether the modal bridge has an active operator instance."""
-    return _RUNNING and not _STOP_REQUESTED
+    """Return whether the macOS bridge hook is active."""
+    return _RUNNING
 
 
 def active_hwnd() -> object:
@@ -59,23 +57,12 @@ def clear_bridge_target_state() -> None:
     runtime.state.font_result_dedup.clear()
 
 
-def clear_native_text_ui_handoff() -> None:
-    """Release the temporary handoff to Blender's own text fields."""
-    runtime.state.input_scope.native_text_ui_handoff = False
-
-
 def end_ime() -> bool:
     """Ask the Cocoa backend to leave IME input focus."""
     backend_end = getattr(platform_api, "end_ime", None)
     if callable(backend_end):
         return bool(backend_end())
     return False
-
-
-def set_scope(scope: input_scope.InputScope) -> None:
-    """Store the current Blender input scope for shared diagnostics."""
-    runtime.state.input_scope.current_kind = scope.kind
-    runtime.state.input_scope.current_area_type = input_scope.scope_area_type(scope)
 
 
 def update_candidate(target: object, hwnd: object = None, *, force: bool = False) -> None:
@@ -98,7 +85,7 @@ def update_candidate(target: object, hwnd: object = None, *, force: bool = False
 
 
 def activate_target(target: object, hwnd: object = None) -> bool:
-    """Make a Blender text target the owner of following TEXTINPUT events."""
+    """Make a Blender text target own following Cocoa insertText commits."""
     if not targets.is_usable_input_target(target):
         return False
     target_state.set_active_target(target)
@@ -108,15 +95,22 @@ def activate_target(target: object, hwnd: object = None) -> bool:
     return True
 
 
-def target_from_context(context: object) -> object | None:
-    """Use Blender's current context as a fallback when no click target exists."""
+def target_from_context(context: object = None) -> object | None:
+    """Use Blender's current context as the active macOS input target."""
+    context = context or bpy.context
     target = targets.make_input_target_from_context(context)
     if target is not None:
         return target
-    return targets.find_font_edit_target(context)
+    target = targets.find_font_edit_target(context)
+    if target is not None:
+        return target
+    return targets.find_text_editor_target(context)
 
 
-def refresh_target_from_context(context: object, hwnd: object = None) -> object | None:
+def refresh_target_from_context(
+    context: object = None,
+    hwnd: object = None,
+) -> object | None:
     """Promote context focus changes into an active bridge target."""
     target = target_from_context(context)
     if activate_target(target, hwnd):
@@ -124,58 +118,25 @@ def refresh_target_from_context(context: object, hwnd: object = None) -> object 
     return None
 
 
-def apply_enabled_scope(scope: input_scope.InputScope) -> None:
-    """Allow IMEBridge input for a supported Text or 3D Text target."""
-    set_scope(scope)
-    activate_target(scope.target, scope.hwnd)
-
-
-def apply_passive_scope(scope: input_scope.InputScope) -> None:
-    """Step away from bridge-owned targets in neutral or shortcut-heavy UI."""
-    set_scope(scope)
-    clear_native_text_ui_handoff()
-    clear_bridge_target_state()
-    end_ime()
-
-
-def apply_mouse_scope(context: object, event: object) -> None:
-    """Classify a mouse press and update the macOS bridge target."""
-    clear_native_text_ui_handoff()
-    hwnd = active_hwnd()
-    scope = input_scope.from_event(context, event, hwnd=hwnd)
-    if scope.kind == input_scope.SCOPE_ENABLED_TARGET:
-        apply_enabled_scope(scope)
-    else:
-        apply_passive_scope(scope)
-
-
-def event_text(event: object) -> str:
-    """Extract committed text from Blender's public event surface."""
-    text = getattr(event, "unicode", "") or ""
-    if text:
-        return text
-    if getattr(event, "type", "") == "TEXTINPUT":
-        return getattr(event, "ascii", "") or ""
-    return ""
-
-
-def queue_text_input(context: object, event: object) -> bool:
-    """Queue committed macOS text into the existing Blender insertion path."""
-    if runtime.state.input_scope.native_text_ui_handoff:
-        return False
-
-    text = event_text(event)
-    if not text:
-        return False
-
-    hwnd = active_hwnd()
+def resolve_commit_target() -> object | None:
+    """Choose where a committed Cocoa IME string should be inserted."""
     target = targets.resolve_input_target(
         runtime.state.composition_target,
         runtime.state.active_target,
-        context,
+        bpy.context,
     )
-    if not targets.is_usable_input_target(target):
-        target = refresh_target_from_context(context, hwnd)
+    if targets.is_usable_input_target(target):
+        return target
+    return refresh_target_from_context(bpy.context, active_hwnd())
+
+
+def handle_committed_text(text: str) -> bool:
+    """Queue committed Cocoa IME text into the existing insertion path."""
+    if not _RUNNING or not text:
+        return False
+
+    hwnd = active_hwnd()
+    target = resolve_commit_target()
     if not targets.is_usable_input_target(target):
         return False
 
@@ -194,150 +155,71 @@ def queue_text_input(context: object, event: object) -> bool:
     return True
 
 
-def opens_native_text_ui(event: object) -> bool:
-    """Shortcuts that hand focus to Blender's own text fields."""
-    if getattr(event, "value", "") != "PRESS":
-        return False
+def _target_poll_timer() -> float | None:
+    """Keep macOS target and candidate state aligned with Blender focus."""
+    global _TIMER_REGISTERED
 
-    event_type = getattr(event, "type", "")
-    if event_type in {"F2", "F3"}:
+    if not _RUNNING:
+        _TIMER_REGISTERED = False
+        return None
+
+    hwnd = active_hwnd()
+    target = target_from_context(bpy.context)
+    if targets.is_usable_input_target(target):
+        activate_target(target, hwnd)
+    elif targets.is_usable_input_target(runtime.state.active_target):
+        update_candidate(runtime.state.active_target, hwnd)
+    elif runtime.state.active_target is not None:
+        clear_bridge_target_state()
+        end_ime()
+
+    return TARGET_POLL_INTERVAL
+
+
+def _register_target_poll() -> bool:
+    """Start the timer that keeps macOS target state current."""
+    global _TIMER_REGISTERED
+
+    if _TIMER_REGISTERED:
         return True
-    if event_type != "F":
-        return False
-    if getattr(event, "alt", False):
-        return False
-    return bool(getattr(event, "ctrl", False) or getattr(event, "oskey", False))
-
-
-def handle_native_text_ui_shortcut(event: object) -> bool:
-    """Step aside before Blender opens search, rename, or find text fields."""
-    if not opens_native_text_ui(event):
-        return False
-    runtime.state.input_scope.native_text_ui_handoff = True
-    clear_bridge_target_state()
-    end_ime()
-    return True
-
-
-def handle_native_text_ui_release(event: object) -> bool:
-    """Keyboard-closing native text UI should not leave the bridge paused."""
-    if not runtime.state.input_scope.native_text_ui_handoff:
-        return False
-    if getattr(event, "value", "") != "PRESS":
-        return False
-    if getattr(event, "type", "") not in {"ESC", "RET"}:
-        return False
-    clear_native_text_ui_handoff()
-    return True
+    if safe_ops.register_timer(_target_poll_timer, first_interval=0.0):
+        _TIMER_REGISTERED = True
+        return True
+    return False
 
 
 def start(insert_on_commit: bool = False) -> int:
-    """Start the hidden modal operator that receives macOS text events."""
+    """Install Cocoa text callbacks and start lightweight target polling."""
+    global _RUNNING
+
     if bpy.app.background or not is_available():
         return 0
-    if _RUNNING and not _STOP_REQUESTED:
-        runtime.state.insert_on_commit = bool(insert_on_commit)
-        return 1
 
     runtime.state.insert_on_commit = bool(insert_on_commit)
-    try:
-        result = bpy.ops.ime_bridge.macos_event_bridge("INVOKE_DEFAULT")
-    except (AttributeError, RuntimeError, TypeError, ValueError):
+    install_hook = getattr(platform_api, "install_text_commit_hook", None)
+    installed = int(install_hook(handle_committed_text)) if callable(install_hook) else 0
+    if installed <= 0:
         return 0
-    return 1 if "RUNNING_MODAL" in result or is_running() else 0
+
+    _RUNNING = True
+    _register_target_poll()
+    refresh_target_from_context(bpy.context, active_hwnd())
+    return installed
 
 
 def stop() -> int:
-    """Request modal shutdown and clean up bridge-owned IME state."""
-    global _GENERATION, _STOP_REQUESTED
+    """Restore Cocoa callbacks and clear bridge-owned state."""
+    global _RUNNING, _TIMER_REGISTERED
 
-    if not _RUNNING:
-        clear_bridge_target_state()
-        end_ime()
-        return 0
-    _STOP_REQUESTED = True
-    _GENERATION += 1
+    was_running = _RUNNING
+    _RUNNING = False
+    _TIMER_REGISTERED = False
+    safe_ops.unregister_timer(_target_poll_timer)
+
+    uninstall_hook = getattr(platform_api, "uninstall_text_commit_hook", None)
+    restored = int(uninstall_hook()) if callable(uninstall_hook) else 0
+
     clear_bridge_target_state()
+    text_target.cancel_restore_guard()
     end_ime()
-    return 1
-
-
-class IMEBRIDGE_OT_macos_event_bridge(bpy.types.Operator):
-    """Hidden operator that keeps macOS text input inside IMEBridge targets."""
-
-    bl_idname = "ime_bridge.macos_event_bridge"
-    bl_label = "IMEBridge macOS Event Bridge"
-    bl_options = {"INTERNAL"}
-
-    @classmethod
-    def poll(cls, context: object) -> bool:
-        """Run only in UI sessions with a selected macOS backend."""
-        return not bpy.app.background and is_available()
-
-    def invoke(self, context: object, _event: object) -> set[str]:
-        """Install the modal event handler once."""
-        global _GENERATION, _OPERATOR, _RUNNING, _STOP_REQUESTED
-
-        if _RUNNING and not _STOP_REQUESTED:
-            return {"CANCELLED"}
-        _GENERATION += 1
-        self._generation = _GENERATION
-        _OPERATOR = self
-        _RUNNING = True
-        _STOP_REQUESTED = False
-        context.window_manager.modal_handler_add(self)
-        refresh_target_from_context(context, active_hwnd())
-        return {"RUNNING_MODAL"}
-
-    def finish(self, *, clear_state: bool = True) -> set[str]:
-        """Clear modal globals when the operator exits."""
-        global _OPERATOR, _RUNNING, _STOP_REQUESTED
-
-        if _OPERATOR is self:
-            _OPERATOR = None
-            _RUNNING = False
-            _STOP_REQUESTED = False
-        if clear_state:
-            clear_bridge_target_state()
-            end_ime()
-            text_target.cancel_restore_guard()
-        return {"CANCELLED"}
-
-    def modal(self, context: object, event: object) -> set[str]:
-        """Route public Blender events into the macOS IME bridge."""
-        if _STOP_REQUESTED and _OPERATOR is self:
-            return self.finish()
-        if getattr(self, "_generation", 0) != _GENERATION:
-            return self.finish(clear_state=False)
-        if not is_available():
-            return self.finish()
-
-        event_type = getattr(event, "type", "")
-        event_value = getattr(event, "value", "")
-
-        if event_type == "WINDOW_DEACTIVATE":
-            clear_native_text_ui_handoff()
-            apply_passive_scope(
-                input_scope.InputScope(
-                    input_scope.SCOPE_NEUTRAL,
-                    hwnd=active_hwnd(),
-                )
-            )
-            return {"PASS_THROUGH"}
-
-        if handle_native_text_ui_shortcut(event):
-            return {"PASS_THROUGH"}
-        handle_native_text_ui_release(event)
-
-        if event_type in MOUSE_PRESS_EVENTS and event_value == "PRESS":
-            apply_mouse_scope(context, event)
-            return {"PASS_THROUGH"}
-
-        if event_type == "TEXTINPUT" and queue_text_input(context, event):
-            return {"RUNNING_MODAL"}
-
-        target = runtime.state.active_target
-        if targets.is_usable_input_target(target):
-            update_candidate(target, active_hwnd())
-
-        return {"PASS_THROUGH"}
+    return restored or int(was_running)

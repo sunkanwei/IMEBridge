@@ -12,6 +12,8 @@ from ..core import runtime
 
 
 SUPPORTS_NATIVE_BRIDGE = sys.platform == "darwin"
+COCOA_CANDIDATE_Y_PADDING = 56
+COCOA_CANDIDATE_Y_PADDING_PROP = "imebridge_macos_candidate_y_padding"
 
 
 @dataclass
@@ -64,6 +66,15 @@ class CANDIDATEFORM(ctypes.Structure):
     _fields_: list[tuple[str, object]] = []
 
 
+class NSRange(ctypes.Structure):
+    """Objective-C NSRange passed by value on Cocoa text input callbacks."""
+
+    _fields_ = [
+        ("location", ctypes.c_ulong),
+        ("length", ctypes.c_ulong),
+    ]
+
+
 class ObjC:
     """Typed Objective-C runtime calls used by the Cocoa IME bridge."""
 
@@ -75,6 +86,18 @@ class ObjC:
         self.sel_registerName = self.lib.sel_registerName
         self.sel_registerName.argtypes = [ctypes.c_char_p]
         self.sel_registerName.restype = ctypes.c_void_p
+        self.class_getInstanceMethod = self.lib.class_getInstanceMethod
+        self.class_getInstanceMethod.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.class_getInstanceMethod.restype = ctypes.c_void_p
+        self.method_getImplementation = self.lib.method_getImplementation
+        self.method_getImplementation.argtypes = [ctypes.c_void_p]
+        self.method_getImplementation.restype = ctypes.c_void_p
+        self.method_setImplementation = self.lib.method_setImplementation
+        self.method_setImplementation.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.method_setImplementation.restype = ctypes.c_void_p
+        self.object_getClass = self.lib.object_getClass
+        self.object_getClass.argtypes = [ctypes.c_void_p]
+        self.object_getClass.restype = ctypes.c_void_p
 
         self.send_id = ctypes.CFUNCTYPE(
             ctypes.c_void_p,
@@ -97,6 +120,11 @@ class ObjC:
             ctypes.c_void_p,
             ctypes.c_void_p,
         )(("objc_msgSend", self.lib))
+        self.send_double = ctypes.CFUNCTYPE(
+            ctypes.c_double,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        )(("objc_msgSend", self.lib))
         self.send_id_ulong = ctypes.CFUNCTYPE(
             ctypes.c_void_p,
             ctypes.c_void_p,
@@ -105,6 +133,11 @@ class ObjC:
         )(("objc_msgSend", self.lib))
         self.send_void = ctypes.CFUNCTYPE(
             None,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        )(("objc_msgSend", self.lib))
+        self.send_char_p = ctypes.CFUNCTYPE(
+            ctypes.c_char_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
         )(("objc_msgSend", self.lib))
@@ -124,6 +157,7 @@ class ObjC:
         self.key_window = self.sel("keyWindow")
         self.main_window = self.sel("mainWindow")
         self.content_view = self.sel("contentView")
+        self.backing_scale_factor = self.sel("backingScaleFactor")
         self.is_visible = self.sel("isVisible")
         self.responds_to_selector = self.sel("respondsToSelector:")
         self.subviews = self.sel("subviews")
@@ -131,6 +165,9 @@ class ObjC:
         self.object_at_index = self.sel("objectAtIndex:")
         self.begin_ime = self.sel("beginIME:y:w:h:completed:")
         self.end_ime = self.sel("endIME")
+        self.insert_text = self.sel("insertText:replacementRange:")
+        self.string = self.sel("string")
+        self.utf8_string = self.sel("UTF8String")
 
     def cls(self, name: str) -> int:
         """Return an Objective-C class pointer."""
@@ -152,6 +189,16 @@ class MacOSApi:
 
     def __init__(self) -> None:
         self.objc = ObjC()
+        self._commit_handler = None
+        self._insert_text_callback = None
+        self._insert_text_records: dict[int, dict[str, object]] = {}
+        self._insert_text_imp_type = ctypes.CFUNCTYPE(
+            None,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            NSRange,
+        )
 
     def application(self) -> int:
         """Return the shared NSApplication object."""
@@ -171,6 +218,21 @@ class MacOSApi:
         if window:
             return window
         return ptr_value(self.objc.send_id(app, self.objc.main_window))
+
+    def backing_scale_factor(self, window: int = 0) -> float:
+        """Return the NSWindow backing scale used to convert pixels to points."""
+        window = ptr_value(window) or self.active_ns_window()
+        if not window or not self.objc.responds(window, self.objc.backing_scale_factor):
+            return 1.0
+        try:
+            scale = float(
+                self.objc.send_double(window, self.objc.backing_scale_factor)
+            )
+        except (OSError, TypeError, ValueError):
+            return 1.0
+        if scale <= 0.0:
+            return 1.0
+        return scale
 
     def _first_ime_view(self, view: int, depth: int = 0) -> int:
         """Find Blender's Cocoa view without assuming the immediate hierarchy."""
@@ -245,6 +307,149 @@ class MacOSApi:
         except (OSError, ValueError):
             return False
         return True
+
+    def text_from_objc_string(self, value: int) -> str:
+        """Convert NSString or NSAttributedString into Python text."""
+        value = ptr_value(value)
+        if not value:
+            return ""
+        try:
+            if self.objc.responds(value, self.objc.string):
+                value = ptr_value(self.objc.send_id(value, self.objc.string))
+            if not value or not self.objc.responds(value, self.objc.utf8_string):
+                return ""
+            data = self.objc.send_char_p(value, self.objc.utf8_string)
+        except (OSError, ValueError):
+            return ""
+        if not data:
+            return ""
+        try:
+            return data.decode("utf-8")
+        except UnicodeError:
+            return ""
+
+    def _record_for_object(self, obj: int) -> dict[str, object] | None:
+        """Find the saved original IMP for a Cocoa view object."""
+        cls = ptr_value(self.objc.object_getClass(obj))
+        if cls in self._insert_text_records:
+            return self._insert_text_records[cls]
+        for record in self._insert_text_records.values():
+            return record
+        return None
+
+    def _call_original_insert_text(
+        self,
+        obj: int,
+        selector: int,
+        chars: int,
+        replacement_range: NSRange,
+    ) -> None:
+        """Forward Cocoa text input to Blender's original implementation."""
+        record = self._record_for_object(obj)
+        if record is None:
+            return
+        original = record.get("callable")
+        if original is None:
+            return
+        original(obj, selector, chars, replacement_range)
+
+    def _handle_insert_text(
+        self,
+        obj: int,
+        selector: int,
+        chars: int,
+        replacement_range: NSRange,
+    ) -> None:
+        """Mirror committed IME text, then forward to Blender's implementation."""
+        try:
+            text = self.text_from_objc_string(chars)
+            handler = self._commit_handler
+            if text and callable(handler):
+                handler(text)
+            self._call_original_insert_text(obj, selector, chars, replacement_range)
+        except Exception:
+            try:
+                self._call_original_insert_text(
+                    obj,
+                    selector,
+                    chars,
+                    replacement_range,
+                )
+            except Exception:
+                return
+
+    def install_insert_text_hook(self, commit_handler: object) -> int:
+        """Patch Blender Cocoa view classes so committed IME text is observable."""
+        self._commit_handler = commit_handler
+        if self._insert_text_records:
+            return len(self._insert_text_records)
+
+        def callback(
+            obj: int,
+            selector: int,
+            chars: int,
+            replacement_range: NSRange,
+        ) -> None:
+            self._handle_insert_text(obj, selector, chars, replacement_range)
+
+        self._insert_text_callback = self._insert_text_imp_type(callback)
+        callback_ptr = ctypes.cast(
+            self._insert_text_callback,
+            ctypes.c_void_p,
+        ).value
+        if not callback_ptr:
+            self._insert_text_callback = None
+            self._commit_handler = None
+            return 0
+
+        installed = 0
+        for class_name in ("CocoaMetalView", "CocoaOpenGLView"):
+            cls = self.objc.cls(class_name)
+            if not cls:
+                continue
+            try:
+                method = ptr_value(
+                    self.objc.class_getInstanceMethod(cls, self.objc.insert_text)
+                )
+                if not method:
+                    continue
+                old_imp = ptr_value(self.objc.method_getImplementation(method))
+                if not old_imp:
+                    continue
+                previous = ptr_value(
+                    self.objc.method_setImplementation(method, callback_ptr)
+                )
+            except (OSError, TypeError, ValueError):
+                continue
+            original_imp = previous or old_imp
+            self._insert_text_records[cls] = {
+                "method": method,
+                "old_imp": original_imp,
+                "callable": self._insert_text_imp_type(original_imp),
+            }
+            installed += 1
+        if installed == 0:
+            self._insert_text_callback = None
+            self._commit_handler = None
+        return installed
+
+    def uninstall_insert_text_hook(self) -> int:
+        """Restore Cocoa text input methods patched by IMEBridge."""
+        restored = 0
+        for record in list(self._insert_text_records.values()):
+            method = ptr_value(record.get("method"))
+            old_imp = ptr_value(record.get("old_imp"))
+            if not method or not old_imp:
+                continue
+            try:
+                self.objc.method_setImplementation(method, old_imp)
+                restored += 1
+            except (OSError, ValueError):
+                pass
+        self._insert_text_records.clear()
+        self._insert_text_callback = None
+        self._commit_handler = None
+        return restored
 
 
 def ensure() -> MacOSApi | None:
@@ -339,9 +544,18 @@ def _window_from_key(window: object) -> object | None:
     return getattr(bpy.context, "window", None)
 
 
-def _client_size(window: object = None) -> tuple[int, int]:
-    """Read a Blender window size in client coordinates."""
+def _layout_size(window: object = None) -> tuple[int, int]:
+    """Read Blender's current screen layout size in region coordinates."""
     window = _window_from_key(window)
+    try:
+        areas = tuple(window.screen.areas)
+    except (AttributeError, ReferenceError, RuntimeError):
+        areas = ()
+    if areas:
+        right = max(int(area.x + area.width) for area in areas)
+        top = max(int(area.y + area.height) for area in areas)
+        if right > 0 and top > 0:
+            return right, top
     width = int(getattr(window, "width", 0) or 0)
     height = int(getattr(window, "height", 0) or 0)
     return width, height
@@ -349,13 +563,13 @@ def _client_size(window: object = None) -> tuple[int, int]:
 
 def client_height(_api: MacOSApi, window: object) -> int | None:
     """Return the active Blender window height."""
-    _width, height = _client_size(window)
+    _width, height = _layout_size(window)
     return height or None
 
 
 def client_rect(_api: MacOSApi, window: object) -> Rect | None:
     """Return the active Blender client rectangle."""
-    width, height = _client_size(window)
+    width, height = _layout_size(window)
     if width <= 0 or height <= 0:
         return None
     return Rect(0, 0, width, height)
@@ -414,6 +628,24 @@ def restore_ime_contexts() -> int:
     return 0
 
 
+def cocoa_candidate_y_padding(context: object = None) -> int:
+    """Runtime-tunable macOS candidate baseline correction in physical pixels."""
+    try:
+        context = context or bpy.context
+        wm = getattr(context, "window_manager", None)
+        if wm is None:
+            return COCOA_CANDIDATE_Y_PADDING
+        return int(
+            getattr(
+                wm,
+                COCOA_CANDIDATE_Y_PADDING_PROP,
+                COCOA_CANDIDATE_Y_PADDING,
+            )
+        )
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        return COCOA_CANDIDATE_Y_PADDING
+
+
 def apply_ime_window_position(
     api: MacOSApi,
     window: object,
@@ -424,8 +656,16 @@ def apply_ime_window_position(
     point = screen_to_client(api, window, position.screen_x, position.screen_y)
     if point is None:
         return False
+    scale = api.backing_scale_factor()
     height = max(12, int(getattr(_info, "line_height", 18) or 18))
-    return api.begin_ime(point.x, point.y, 1, height, False)
+    candidate_y = point.y + height + cocoa_candidate_y_padding()
+    return api.begin_ime(
+        round(point.x / scale),
+        round(candidate_y / scale),
+        1,
+        max(12, round(height / scale)),
+        False,
+    )
 
 
 def end_ime() -> bool:
@@ -434,3 +674,19 @@ def end_ime() -> bool:
     if api is None:
         return False
     return api.end_ime()
+
+
+def install_text_commit_hook(commit_handler: object) -> int:
+    """Install the backend hook that mirrors committed Cocoa IME text."""
+    api = ensure()
+    if api is None:
+        return 0
+    return api.install_insert_text_hook(commit_handler)
+
+
+def uninstall_text_commit_hook() -> int:
+    """Restore any Cocoa text input methods patched by IMEBridge."""
+    api = ensure()
+    if api is None:
+        return 0
+    return api.uninstall_insert_text_hook()

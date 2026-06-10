@@ -29,6 +29,7 @@ paths = [
   "bridge/ime_guards.py",
   "bridge/ime_switch.py",
   "bridge/input_scope.py",
+  "bridge/macos_debug_panel.py",
   "bridge/macos_event_bridge.py",
   "bridge/message_router.py",
   "bridge/nexus_whitelist.py",

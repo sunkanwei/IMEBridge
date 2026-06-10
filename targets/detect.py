@@ -51,6 +51,66 @@ def make_text_editor_target_from_context(
     return make_text_editor_target(window, area, region, space)
 
 
+def _rna_pointer(value: object) -> int:
+    """Return a stable-enough pointer for Blender RNA de-duplication."""
+    try:
+        pointer = platform_api.ptr_value(value.as_pointer())
+    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
+        pointer = 0
+    return pointer or id(value)
+
+
+def find_text_editor_target(context: object = None) -> models.TextEditorTarget | None:
+    """Find a visible Text Editor target when timers lose the active area context."""
+    context = context or bpy.context
+    current = make_text_editor_target_from_context(context)
+    if current is not None:
+        return current
+
+    windows = []
+    seen_windows = set()
+    context_window = getattr(context, "window", None)
+    if context_window is not None:
+        windows.append(context_window)
+        seen_windows.add(_rna_pointer(context_window))
+
+    try:
+        all_windows = tuple(bpy.context.window_manager.windows)
+    except (AttributeError, ReferenceError, RuntimeError):
+        all_windows = ()
+    for window in all_windows:
+        key = _rna_pointer(window)
+        if key in seen_windows:
+            continue
+        seen_windows.add(key)
+        windows.append(window)
+
+    seen_areas = set()
+    for window in windows:
+        try:
+            areas = tuple(window.screen.areas)
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
+        for area in areas:
+            try:
+                if area.type != "TEXT_EDITOR":
+                    continue
+                area_key = _rna_pointer(area)
+                if area_key in seen_areas:
+                    continue
+                seen_areas.add(area_key)
+                region = platform_api.window_region(area)
+                space = area.spaces.active
+            except (AttributeError, ReferenceError, RuntimeError):
+                continue
+            if region is None or space is None:
+                continue
+            target = make_text_editor_target(window, area, region, space)
+            if target is not None:
+                return target
+    return None
+
+
 def iter_font_object_candidates(context: object = None) -> Iterator[object]:
     """Walk Blender's usual object handles before scanning edited Font data."""
     contexts = []
