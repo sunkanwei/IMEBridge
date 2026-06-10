@@ -8,7 +8,7 @@ from ..core import models
 from ..core import runtime
 from ..targets import detect as targets
 from ..targets import text as text_target
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 SPACE_SUPPRESSION_SECONDS = 0.75
@@ -31,14 +31,14 @@ def clear_space_confirm() -> None:
 
 def mark_space_confirm(hwnd: object) -> None:
     """Remember that the current IME commit was confirmed by Space."""
-    runtime.state.space_confirm.hwnd = win32_api.ptr_value(hwnd)
+    runtime.state.space_confirm.hwnd = platform_api.ptr_value(hwnd)
     runtime.state.space_confirm.until = time.monotonic() + SPACE_CONFIRM_SECONDS
 
 
 def consume_space_confirm(hwnd: object) -> bool:
     """Use one recent Space confirmation as permission to swallow one space."""
     state = runtime.state.space_confirm
-    if not state.hwnd or state.hwnd != win32_api.ptr_value(hwnd):
+    if not state.hwnd or state.hwnd != platform_api.ptr_value(hwnd):
         return False
     if time.monotonic() > state.until:
         state.clear()
@@ -51,7 +51,7 @@ def mark_space_suppression(hwnd: object) -> bool:
     """Give the commit path a short grace period to eat Blender's stray space."""
     if not consume_space_confirm(hwnd):
         return False
-    runtime.state.space_suppression.hwnd = win32_api.ptr_value(hwnd)
+    runtime.state.space_suppression.hwnd = platform_api.ptr_value(hwnd)
     runtime.state.space_suppression.until = time.monotonic() + SPACE_SUPPRESSION_SECONDS
     return True
 
@@ -62,14 +62,14 @@ def handle_space_suppression(
     msg_value: int,
     w_value: int,
 ) -> int | None:
-    """Catch the space that Windows sends after some IME commits."""
+    """Catch the space that some native IMEs send after commits."""
     state = runtime.state.space_suppression
     if not state.hwnd:
         return None
     if time.monotonic() > state.until:
         clear_space_suppression()
         return None
-    if state.hwnd != win32_api.ptr_value(hwnd):
+    if state.hwnd != platform_api.ptr_value(hwnd):
         return None
 
     if msg_value == win.WM_KEYDOWN and w_value == win.VK_SPACE:
@@ -87,7 +87,7 @@ def handle_space_suppression(
 
 def mark_ime_activity(hwnd: object, seconds: float = IME_ACTIVITY_SECONDS) -> None:
     """Keep guards awake briefly after composition flags disappear."""
-    runtime.state.ime_activity.hwnd = win32_api.ptr_value(hwnd)
+    runtime.state.ime_activity.hwnd = platform_api.ptr_value(hwnd)
     runtime.state.ime_activity.until = time.monotonic() + seconds
 
 
@@ -99,7 +99,7 @@ def clear_ime_activity() -> None:
 def has_recent_ime_activity(hwnd: object) -> bool:
     """Some IMEs clear composition state before their final key messages arrive."""
     state = runtime.state.ime_activity
-    if not state.hwnd or state.hwnd != win32_api.ptr_value(hwnd):
+    if not state.hwnd or state.hwnd != platform_api.ptr_value(hwnd):
         return False
     if time.monotonic() > state.until:
         clear_ime_activity()
@@ -119,7 +119,7 @@ def is_keyboard_message(win: object, msg_value: int) -> bool:
 
 
 def modifier_shortcut_is_down(win: object) -> bool:
-    """Ctrl and Alt chords belong to Blender or Windows, not to this guard."""
+    """Ctrl and Alt chords belong to Blender or the system, not to this guard."""
     control_down = bool(win.user32.GetKeyState(win.VK_CONTROL) & 0x8000)
     alt_down = bool(win.user32.GetKeyState(win.VK_MENU) & 0x8000)
     return control_down or alt_down
@@ -209,10 +209,10 @@ def mark_space_confirm_if_needed(
     """Track only Space keys that happen while an IME owns a bridge target."""
     is_space = False
     if msg_value == win.WM_INPUT:
-        raw = win32_api.read_raw_keyboard(win, lparam)
+        raw = platform_api.read_raw_keyboard(win, lparam)
         is_space = raw is not None and raw["vkey"] == win.VK_SPACE
     elif is_keyboard_message(win, msg_value):
-        is_space = win32_api.ptr_value(wparam) == win.VK_SPACE
+        is_space = platform_api.ptr_value(wparam) == win.VK_SPACE
 
     if not is_space:
         return
@@ -243,7 +243,7 @@ def handle_preedit_text_guard(
     if not models.is_text_editor_target(target):
         return None
 
-    value = win32_api.ptr_value(wparam)
+    value = platform_api.ptr_value(wparam)
     if msg_value == win.WM_CHAR and not is_preedit_char(value):
         return None
     if msg_value != win.WM_CHAR and not is_preedit_vkey(value):
@@ -264,7 +264,7 @@ def handle_font_space_confirm_guard(
 ) -> int | None:
     """For 3D Text, space belongs to the IME until composition is finished."""
     if msg_value == win.WM_INPUT:
-        raw = win32_api.read_raw_keyboard(win, lparam)
+        raw = platform_api.read_raw_keyboard(win, lparam)
         if raw is None or raw["vkey"] != win.VK_SPACE:
             return None
         target = ime_edit_guard_target(win, hwnd, comp_string_reader)
@@ -275,7 +275,7 @@ def handle_font_space_confirm_guard(
     if not is_keyboard_message(win, msg_value):
         return None
 
-    if win32_api.ptr_value(wparam) != win.VK_SPACE:
+    if platform_api.ptr_value(wparam) != win.VK_SPACE:
         return None
 
     target = ime_edit_guard_target(win, hwnd, comp_string_reader)
@@ -293,7 +293,7 @@ def handle_raw_input_guard(
     comp_string_reader: CompositionReader,
 ) -> int | None:
     """Raw input can reach Blender before translated IME messages do."""
-    raw = win32_api.read_raw_keyboard(win, lparam)
+    raw = platform_api.read_raw_keyboard(win, lparam)
     if raw is None:
         return None
 
@@ -316,8 +316,8 @@ def handle_ime_edit_key_guard(
     lparam: object,
     comp_string_reader: CompositionReader,
 ) -> int | None:
-    """Let IMM32 consume navigation and deletion keys during composition."""
-    w_value = win32_api.ptr_value(wparam)
+    """Let the native IME consume navigation and deletion keys during composition."""
+    w_value = platform_api.ptr_value(wparam)
     is_guarded_char = msg_value == win.WM_CHAR and w_value in {
         win.VK_BACK,
         win.VK_ESCAPE,
@@ -403,5 +403,5 @@ def handle_message_guards(
         win,
         hwnd,
         msg_value,
-        win32_api.ptr_value(wparam),
+        platform_api.ptr_value(wparam),
     )

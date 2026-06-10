@@ -10,7 +10,7 @@ from ..core import runtime
 from ..targets import detect as targets
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 FONT_RESULT_DEDUP_SECONDS = 0.35
@@ -83,7 +83,7 @@ def font_result_target_key(target: object) -> int:
     """Use the Blender object pointer for short-lived duplicate detection."""
     if not models.is_font_edit_target(target) or target.obj is None:
         return 0
-    return win32_api.ptr_value(target.obj.as_pointer())
+    return platform_api.ptr_value(target.obj.as_pointer())
 
 
 def mark_recent_font_result(target: object, text: str | None) -> None:
@@ -155,7 +155,7 @@ def handle_font_char_commit(
     if target is None:
         return None
 
-    value = win32_api.ptr_value(wparam)
+    value = platform_api.ptr_value(wparam)
     if msg_value == win.WM_CHAR and value < 0x80:
         return None
 

@@ -1,4 +1,4 @@
-"""Route Win32 messages into target tracking, IME commits, and guards."""
+"""Route native messages into target tracking, IME commits, and guards."""
 
 import bpy
 
@@ -17,7 +17,7 @@ from ..targets import detect as targets
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
 from ..targets import text as text_target
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 INPUT_SCOPE_TIMER_INTERVAL = 0.01
@@ -142,7 +142,7 @@ def refresh_scope_from_context(hwnd: object) -> bool:
 
 
 def _apply_pending_input_scope() -> None:
-    """Timer callback used to keep Win32 hooks out of heavier Blender work."""
+    """Timer callback used to keep native hooks out of heavier Blender work."""
     if not runtime.state.input_scope.scope_timer_registered:
         return None
     runtime.state.input_scope.scope_timer_registered = False
@@ -237,7 +237,7 @@ def handle_focus_message(win: object, msg_value: int, wparam: object) -> bool:
         cancel_pending_input_scope()
         clear_bridge_target_state()
         return True
-    if msg_value == win.WM_ACTIVATEAPP and not bool(win32_api.ptr_value(wparam)):
+    if msg_value == win.WM_ACTIVATEAPP and not bool(platform_api.ptr_value(wparam)):
         set_neutral_scope()
         cancel_pending_input_scope()
         clear_bridge_target_state()
@@ -260,7 +260,7 @@ def opens_native_text_ui(win: object, msg_value: int, wparam: object) -> bool:
     if msg_value != win.WM_KEYDOWN:
         return False
 
-    key = win32_api.ptr_value(wparam)
+    key = platform_api.ptr_value(wparam)
     if key in {win.VK_F2, win.VK_F3}:
         return True
     return key == ord("F") and ctrl_is_down(win) and not alt_is_down(win)
@@ -294,7 +294,7 @@ def handle_native_text_ui_release(
         return False
     if msg_value != win.WM_KEYUP:
         return False
-    if win32_api.ptr_value(wparam) not in {win.VK_ESCAPE, win.VK_RETURN}:
+    if platform_api.ptr_value(wparam) not in {win.VK_ESCAPE, win.VK_RETURN}:
         return False
     clear_native_text_ui_handoff()
     set_neutral_scope()
@@ -302,7 +302,7 @@ def handle_native_text_ui_release(
 
 
 def is_supported_message(win: object, msg_value: int) -> bool:
-    """Ignore the Win32 noise the bridge never handles."""
+    """Ignore the native message noise the bridge never handles."""
     return msg_value in {
         win.WM_SETFOCUS,
         win.WM_KILLFOCUS,
@@ -477,7 +477,7 @@ def dispatch_ime_message(
     elif msg_value == win.WM_IME_STARTCOMPOSITION:
         handle_ime_start_composition(hwnd)
     elif msg_value == win.WM_IME_COMPOSITION:
-        handle_ime_composition(win, hwnd, win32_api.ptr_value(lparam))
+        handle_ime_composition(win, hwnd, platform_api.ptr_value(lparam))
     elif msg_value == win.WM_IME_ENDCOMPOSITION:
         handle_ime_end_composition(hwnd)
 
@@ -490,12 +490,12 @@ def handle_window_message(
     wparam: object,
     lparam: object,
 ) -> message_result.MessageResult:
-    """Main entry point from the hooked window procedure."""
-    win = win32_api.ensure_windows()
+    """Main entry point from the hooked native message procedure."""
+    win = platform_api.ensure()
     if win is None:
         return message_result.MessageResult.pass_through()
 
-    msg_value = win32_api.ptr_value(msg)
+    msg_value = platform_api.ptr_value(msg)
     if not is_supported_message(win, msg_value):
         return message_result.MessageResult.pass_through()
 

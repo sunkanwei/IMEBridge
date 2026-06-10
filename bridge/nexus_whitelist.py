@@ -3,7 +3,7 @@
 import sys
 from collections.abc import Iterator
 
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 _NEXUS_SERVICE_MODULE = "nexus._runtime.service.ssot"
@@ -93,4 +93,4 @@ def _as_pointer(value: object) -> int | None:
     as_pointer = getattr(value, "as_pointer", None)
     if not callable(as_pointer):
         return None
-    return win32_api.ptr_value(as_pointer())
+    return platform_api.ptr_value(as_pointer())

@@ -210,7 +210,7 @@ class RuntimeState:
 
 
 # One runtime object is enough here. Blender's add-on reload is the lifecycle
-# boundary, and transient Win32 handles do not belong in RNA data.
+# boundary, and transient native handles do not belong in RNA data.
 state = RuntimeState()
 
 

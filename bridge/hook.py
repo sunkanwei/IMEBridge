@@ -1,11 +1,11 @@
-"""Install and restore Win32 window procedure hooks for Blender windows."""
+"""Install and restore native message hooks for Blender windows."""
 
 import ctypes
 
 from . import ime_guards
 from . import message_router
 from ..core import runtime
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 def is_hook_target(item: dict[str, object]) -> bool:
@@ -32,7 +32,7 @@ def call_previous_window_proc(
 
 
 def make_window_proc(win: object, old_proc: int, control: dict[str, bool]) -> object:
-    """Wrap Blender's window procedure without letting Python leaks escape."""
+    """Wrap Blender's native message procedure without letting Python leaks escape."""
     def wndproc(hwnd_arg: object, msg: object, wparam: object, lparam: object) -> object:
         """Handle one message, then hand it back to Blender when untouched."""
         handled_result = None
@@ -45,7 +45,7 @@ def make_window_proc(win: object, old_proc: int, control: dict[str, bool]) -> ob
                     lparam,
                 )
                 handled_result = result.as_window_result
-            # A Python exception must never escape a Win32 window procedure.
+            # A Python exception must never escape a native message hook.
             except Exception:
                 handled_result = None
 
@@ -77,14 +77,14 @@ def hook_window(win: object, item: dict[str, object]) -> bool:
     if not item["visible"] or not is_hook_target(item):
         return False
 
-    old_proc = win32_api.ptr_value(win.GetWindowLongPtrW(hwnd, win.GWL_WNDPROC))
+    old_proc = platform_api.ptr_value(win.GetWindowLongPtrW(hwnd, win.GWL_WNDPROC))
     if not old_proc:
         return False
 
     control = {"active": True}
     callback = make_window_proc(win, old_proc, control)
     ctypes.set_last_error(0)
-    previous = win32_api.ptr_value(
+    previous = platform_api.ptr_value(
         win.SetWindowLongPtrW(
             hwnd,
             win.GWL_WNDPROC,
@@ -100,7 +100,7 @@ def hook_window(win: object, item: dict[str, object]) -> bool:
         "old_proc": old_proc,
         "callback": callback,
         "control": control,
-        "callback_ptr": win32_api.ptr_value(ctypes.cast(callback, ctypes.c_void_p)),
+        "callback_ptr": platform_api.ptr_value(ctypes.cast(callback, ctypes.c_void_p)),
         "class": item["class"],
     }
     return True
@@ -108,21 +108,21 @@ def hook_window(win: object, item: dict[str, object]) -> bool:
 
 def start_hooks(insert_on_commit: bool = False) -> int:
     """Install hooks for the current Blender process."""
-    win = win32_api.ensure_windows()
+    win = platform_api.ensure()
     if win is None:
         return 0
 
     runtime.state.insert_on_commit = bool(insert_on_commit)
     hooked = 0
-    for item in win32_api.enum_process_windows(include_children=True):
+    for item in platform_api.enum_process_windows(include_children=True):
         if hook_window(win, item):
             hooked += 1
     return hooked
 
 
 def current_window_proc(win: object, hwnd: object) -> int:
-    """Read the window procedure currently installed on hwnd."""
-    return win32_api.ptr_value(win.GetWindowLongPtrW(hwnd, win.GWL_WNDPROC))
+    """Read the native procedure currently installed on hwnd."""
+    return platform_api.ptr_value(win.GetWindowLongPtrW(hwnd, win.GWL_WNDPROC))
 
 
 def restore_hook(win: object, record: dict[str, object]) -> bool:
@@ -136,7 +136,7 @@ def restore_hook(win: object, record: dict[str, object]) -> bool:
         return False
 
     ctypes.set_last_error(0)
-    previous = win32_api.ptr_value(
+    previous = platform_api.ptr_value(
         win.SetWindowLongPtrW(
             hwnd,
             win.GWL_WNDPROC,

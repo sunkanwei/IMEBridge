@@ -120,7 +120,7 @@ def get_setting(name: str, default: object, context: object = None) -> object:
 
 
 def preposition_candidate(context: object = None) -> bool:
-    """Whether to nudge IMM32 before the first composition message arrives."""
+    """Whether to nudge the native IME before composition starts."""
     return bool(
         get_setting(
             "ime_bridge_preposition_candidate",

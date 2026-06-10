@@ -217,7 +217,7 @@ def blender_language() -> str | None:
 
 
 def locale_language() -> str | None:
-    """Windows locale probing can fail, especially on unusual setups."""
+    """System locale probing can fail, especially on unusual setups."""
     try:
         language_id, _encoding = locale.getlocale()
     except (TypeError, ValueError):

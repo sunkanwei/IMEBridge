@@ -1,15 +1,14 @@
 """Open and close the window IME without touching the system input layout."""
 
 import ctypes
-from ctypes import wintypes
 
 from ..core import runtime
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 def hwnd_key(hwnd: object) -> int:
-    """Use a stable integer key for ctypes HWND values."""
-    return win32_api.ptr_value(hwnd)
+    """Use a stable integer key for native window handles."""
+    return platform_api.ptr_value(hwnd)
 
 
 def conversion_status_for_context(
@@ -17,8 +16,8 @@ def conversion_status_for_context(
     himc: object,
 ) -> tuple[int, int] | None:
     """Read conversion and sentence modes from an already acquired HIMC."""
-    conversion = wintypes.DWORD()
-    sentence = wintypes.DWORD()
+    conversion = platform_api.DWORD()
+    sentence = platform_api.DWORD()
     if not win.imm32.ImmGetConversionStatus(
         himc,
         ctypes.byref(conversion),
@@ -124,7 +123,7 @@ def restore_conversion_status(
 
 def close_for_shortcut_surface(hwnd: object) -> bool:
     """Temporarily put this Blender window into direct-input mode."""
-    win = win32_api.ensure_windows()
+    win = platform_api.ensure()
     if win is None or not hwnd:
         return False
 
@@ -142,7 +141,7 @@ def close_for_shortcut_surface(hwnd: object) -> bool:
 
 def restore_if_managed(hwnd: object) -> bool:
     """Restore only IME states that IMEBridge changed itself."""
-    win = win32_api.ensure_windows()
+    win = platform_api.ensure()
     if win is None:
         return False
 

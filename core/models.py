@@ -111,7 +111,7 @@ class CandidateInfo:
 
 @dataclass(frozen=True)
 class CandidatePosition:
-    """Final screen-space position sent to IMM32."""
+    """Final screen-space position sent to the native IME backend."""
 
     screen_x: int
     screen_y: int

@@ -5,7 +5,7 @@ from collections.abc import Callable
 import bpy
 
 from ..core import models
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 from . import detect as targets
 
 
@@ -81,7 +81,7 @@ def insert_from_active_context(text: str) -> bool:
             try:
                 if area.type != "VIEW_3D":
                     continue
-                region = win32_api.window_region(area)
+                region = platform_api.window_region(area)
                 if region is None:
                     continue
                 with bpy.context.temp_override(

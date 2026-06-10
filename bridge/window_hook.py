@@ -1,7 +1,5 @@
 """Lifecycle helpers for automatically enabling the IME bridge."""
 
-import os
-
 import bpy
 
 from . import arming
@@ -9,6 +7,7 @@ from . import hook
 from . import ime_context
 from ..core import runtime
 from ..core import safe_ops
+from ..platforms import native as platform_api
 from ..targets import detect as targets
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
@@ -40,7 +39,7 @@ def _auto_enable_timer() -> float | None:
     if not runtime.state.auto_enable_timer_registered:
         return None
     runtime.state.auto_enable_timer_registered = False
-    if bpy.app.background or os.name != "nt":
+    if bpy.app.background or not platform_api.supports_native_bridge():
         runtime.state.auto_enable_attempts = 0
         return None
 
@@ -62,7 +61,7 @@ def schedule_auto_enable(first_interval: float = 0.1) -> None:
     """Start the bridge lazily after Blender finishes building the UI."""
     if (
         bpy.app.background
-        or os.name != "nt"
+        or not platform_api.supports_native_bridge()
         or runtime.state.auto_enable_timer_registered
     ):
         return

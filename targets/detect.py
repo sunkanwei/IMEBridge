@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import bpy
 
 from ..core import models
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 TARGET_TEXT_EDITOR = models.TARGET_TEXT_EDITOR
@@ -42,7 +42,7 @@ def make_text_editor_target_from_context(
         return None
 
     try:
-        region = win32_api.window_region(area)
+        region = platform_api.window_region(area)
         space = area.spaces.active
     except (AttributeError, ReferenceError, RuntimeError):
         return None
@@ -66,7 +66,7 @@ def iter_font_object_candidates(context: object = None) -> Iterator[object]:
         try:
             if obj is None or getattr(obj, "type", None) != "FONT":
                 return
-            pointer = win32_api.ptr_value(obj.as_pointer())
+            pointer = platform_api.ptr_value(obj.as_pointer())
         except (AttributeError, ReferenceError, RuntimeError):
             return
         if pointer in seen:
@@ -168,7 +168,7 @@ def make_font_edit_target_from_context(
         return None
 
     try:
-        region = win32_api.window_region(area)
+        region = platform_api.window_region(area)
         space = area.spaces.active
     except (AttributeError, ReferenceError, RuntimeError):
         return None
@@ -200,7 +200,7 @@ def find_font_edit_target(context: object = None) -> models.FontEditTarget | Non
             try:
                 if area.type != "VIEW_3D":
                     continue
-                region = win32_api.window_region(area)
+                region = platform_api.window_region(area)
                 space = area.spaces.active
             except (AttributeError, ReferenceError, RuntimeError):
                 continue

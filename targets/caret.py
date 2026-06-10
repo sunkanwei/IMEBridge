@@ -2,7 +2,7 @@
 
 from ..core import models
 from ..preferences import config
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 def text_line_height(space: object, region: object) -> int:
@@ -39,11 +39,11 @@ def text_editor_caret_info(
     hwnd: object,
     target: object,
 ) -> models.CandidateInfo | None:
-    """Collect the geometry IMM32 needs for Text Editor candidate placement."""
+    """Collect the geometry a native IME needs for Text Editor placement."""
     if not models.is_text_editor_target(target):
         return None
 
-    win = win32_api.ensure_windows()
+    win = platform_api.ensure()
     if win is None:
         return None
 
@@ -54,10 +54,10 @@ def text_editor_caret_info(
         return None
     region_x, region_y = region_point
 
-    point = win32_api.region_point_to_screen(
+    point = platform_api.region_point_to_screen(
         win, hwnd, target.region, region_x, region_y
     )
-    rect = win32_api.region_rect_to_screen(win, hwnd, target.region)
+    rect = platform_api.region_rect_to_screen(win, hwnd, target.region)
     if point is None or rect is None:
         return None
 

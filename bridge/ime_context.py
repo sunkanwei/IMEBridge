@@ -2,7 +2,6 @@
 
 import ctypes
 import time
-from ctypes import wintypes
 
 import bpy
 
@@ -13,7 +12,7 @@ from ..preferences import config
 from ..targets import caret as text_caret
 from ..targets import detect as targets
 from ..targets import state as target_state
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 LINE_EXCLUSION_PADDING = 6
@@ -27,13 +26,13 @@ FONT_CANDIDATE_LINE_HEIGHT = 28
 
 
 def restore_ime_contexts() -> int:
-    """Ask IMM32 to give Blender windows their default IME context back."""
-    win = win32_api.ensure_windows()
+    """Ask the backend to give Blender windows their default IME context back."""
+    win = platform_api.ensure()
     if win is None:
         return 0
 
     restored = 0
-    for item in win32_api.enum_process_windows(include_children=True):
+    for item in platform_api.enum_process_windows(include_children=True):
         ok = bool(
             win.imm32.ImmAssociateContextEx(
                 item["hwnd"],
@@ -47,7 +46,7 @@ def restore_ime_contexts() -> int:
 
 
 def read_composition_string(win: object, hwnd: object, index: int) -> str | None:
-    """Read a composition buffer; IMM32 reports the size in bytes."""
+    """Read a composition buffer from the native backend."""
     himc = win.imm32.ImmGetContext(hwnd)
     if not himc:
         return None
@@ -72,19 +71,19 @@ def read_composition_string(win: object, hwnd: object, index: int) -> str | None
 
 
 def ghost_window_for_ime(win: object, hwnd: object = None) -> object | None:
-    """Find the Blender window IMM32 should talk to right now."""
-    if hwnd and win32_api.class_name(win, hwnd) == "GHOST_WindowClass":
+    """Find the Blender window the native IME backend should talk to right now."""
+    if hwnd and platform_api.class_name(win, hwnd) == "GHOST_WindowClass":
         return hwnd
 
     foreground = win.user32.GetForegroundWindow()
     if (
         foreground
-        and win32_api.is_current_process_window(win, foreground)
-        and win32_api.class_name(win, foreground) == "GHOST_WindowClass"
+        and platform_api.is_current_process_window(win, foreground)
+        and platform_api.class_name(win, foreground) == "GHOST_WindowClass"
     ):
         return foreground
 
-    for item in win32_api.enum_process_windows(include_children=False):
+    for item in platform_api.enum_process_windows(include_children=False):
         if item["visible"] and item["class"] == "GHOST_WindowClass":
             return item["hwnd"]
     return None
@@ -96,8 +95,8 @@ def line_exclusion_rect(
     info: models.CandidateInfo,
 ) -> object | None:
     """Keep candidate windows from sitting directly on the active line."""
-    client = win32_api.client_rect(win, hwnd)
-    caret = win32_api.screen_to_client(win, hwnd, info.screen_x, info.screen_y)
+    client = platform_api.client_rect(win, hwnd)
+    caret = platform_api.screen_to_client(win, hwnd, info.screen_x, info.screen_y)
     if client is None or caret is None:
         return None
 
@@ -106,7 +105,7 @@ def line_exclusion_rect(
     bottom = min(client.bottom, caret.y + line_height + LINE_EXCLUSION_PADDING)
     if bottom <= top:
         bottom = min(client.bottom, top + line_height)
-    return wintypes.RECT(client.left, top, client.right, bottom)
+    return platform_api.RECT(client.left, top, client.right, bottom)
 
 
 def font_edit_candidate_info(
@@ -118,14 +117,14 @@ def font_edit_candidate_info(
     if not models.is_font_edit_target(target):
         return None
 
-    point = win32_api.region_point_to_screen(
+    point = platform_api.region_point_to_screen(
         win,
         hwnd,
         target.region,
         FONT_CANDIDATE_REGION_X,
         FONT_CANDIDATE_REGION_Y,
     )
-    rect = win32_api.region_rect_to_screen(win, hwnd, target.region)
+    rect = platform_api.region_rect_to_screen(win, hwnd, target.region)
     if point is None or rect is None:
         return None
 
@@ -179,8 +178,8 @@ def build_composition_form(
     client_point: object,
     exclusion: object,
 ) -> object:
-    """Prepare the small IMM32 struct for composition placement."""
-    comp_form = win32_api.COMPOSITIONFORM()
+    """Prepare the small backend struct for composition placement."""
+    comp_form = platform_api.COMPOSITIONFORM()
     comp_form.dwStyle = win.CFS_POINT
     comp_form.ptCurrentPos.x = client_point.x
     comp_form.ptCurrentPos.y = client_point.y
@@ -190,7 +189,7 @@ def build_composition_form(
 
 def build_candidate_form(win: object, client_point: object, exclusion: object) -> object:
     """Prepare the candidate form with the active line as an exclusion area."""
-    cand_form = win32_api.CANDIDATEFORM()
+    cand_form = platform_api.CANDIDATEFORM()
     cand_form.dwIndex = 0
     cand_form.dwStyle = win.CFS_EXCLUDE
     cand_form.ptCurrentPos.x = client_point.x
@@ -206,7 +205,7 @@ def apply_ime_window_position(
     position: models.CandidatePosition,
 ) -> bool:
     """Apply both composition and candidate positions while the HIMC is held."""
-    client_point = win32_api.screen_to_client(
+    client_point = platform_api.screen_to_client(
         win,
         hwnd,
         position.screen_x,
@@ -241,7 +240,7 @@ def update_ime_candidate_position(hwnd: object = None, target: object = None) ->
     if not config.preposition_candidate():
         return False
 
-    win = win32_api.ensure_windows()
+    win = platform_api.ensure()
     if win is None:
         return False
 
@@ -285,7 +284,11 @@ def text_editor_draw_heartbeat() -> None:
 
 def register_text_draw_handler() -> None:
     """Install the Text Editor heartbeat in UI sessions."""
-    if bpy.app.background or runtime.state.text_draw_handler is not None:
+    if (
+        bpy.app.background
+        or not platform_api.supports_native_bridge()
+        or runtime.state.text_draw_handler is not None
+    ):
         return
     try:
         runtime.state.text_draw_handler = bpy.types.SpaceTextEditor.draw_handler_add(
@@ -306,12 +309,12 @@ def unregister_text_draw_handler() -> None:
 
 def ime_char_position_pointer(lparam: object) -> object | None:
     """Treat the IMR_QUERYCHARPOSITION lparam as an IMECHARPOSITION pointer."""
-    l_value = win32_api.ptr_value(lparam)
+    l_value = platform_api.ptr_value(lparam)
     if not l_value:
         return None
     return ctypes.cast(
         ctypes.c_void_p(l_value),
-        ctypes.POINTER(win32_api.IMECHARPOSITION),
+        ctypes.POINTER(platform_api.IMECHARPOSITION),
     )
 
 
@@ -324,7 +327,7 @@ def write_ime_char_position(
     ptr = ime_char_position_pointer(lparam)
     if ptr is None:
         return False
-    ptr.contents.dwSize = ctypes.sizeof(win32_api.IMECHARPOSITION)
+    ptr.contents.dwSize = ctypes.sizeof(platform_api.IMECHARPOSITION)
     ptr.contents.pt.x = position.screen_x
     ptr.contents.pt.y = position.screen_y
     ptr.contents.cLineHeight = int(info.line_height)
@@ -395,7 +398,7 @@ def handle_ime_request(
     lparam: object,
 ) -> int | None:
     """Handle the small subset of WM_IME_REQUEST used for positioning."""
-    request_value = win32_api.ptr_value(wparam)
+    request_value = platform_api.ptr_value(wparam)
     if request_value == win.IMR_QUERYCHARPOSITION:
         result = handle_ime_query_char_position(win, hwnd, lparam)
         if result is not None:

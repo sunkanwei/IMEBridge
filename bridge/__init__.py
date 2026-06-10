@@ -1,1 +1,1 @@
-"""Windows IME bridge implementation."""
+"""Native IME bridge implementation."""

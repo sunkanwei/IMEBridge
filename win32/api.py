@@ -7,6 +7,12 @@ import os
 from ..core import runtime
 
 
+SUPPORTS_NATIVE_BRIDGE = True
+RECT = wintypes.RECT
+POINT = wintypes.POINT
+DWORD = wintypes.DWORD
+
+
 def ptr_value(value: object) -> int:
     """Normalize ctypes handles and pointer-sized values to int."""
     if value is None:
@@ -352,6 +358,11 @@ def ensure_windows() -> Win32Api | None:
     if runtime.state.win is None:
         runtime.state.win = Win32Api()
     return runtime.state.win
+
+
+def ensure() -> Win32Api | None:
+    """Platform-backend entry point used by neutral bridge code."""
+    return ensure_windows()
 
 
 def class_name(win: Win32Api, hwnd: object) -> str:

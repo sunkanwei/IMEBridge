@@ -13,7 +13,7 @@ SOURCE_FONT_CHAR = "font_char"
 
 
 def flush() -> None:
-    """Blender operators are safer from the timer than from WndProc."""
+    """Blender operators are safer from the timer than from native hooks."""
     try:
         while runtime.state.pending_inserts:
             item = runtime.state.pending_inserts.popleft()

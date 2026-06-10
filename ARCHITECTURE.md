@@ -9,6 +9,8 @@ buttons after installation.
 - `__init__.py`: add-on lifecycle, registration rollback, and cleanup.
 - `preferences/`: add-on preferences and localized preference labels.
 - `core/`: shared models, runtime state, safe cleanup, and message results.
+- `platforms/`: native backend selection plus safe no-op behavior for
+  platforms without a real bridge yet.
 - `win32/`: Win32, IMM32, window enumeration, and coordinate conversion.
 - `bridge/`: window hooks, message routing, IME scope switching,
   positioning, and guards.
@@ -16,10 +18,13 @@ buttons after installation.
 
 ## Input Flow
 
-During registration, the add-on schedules automatic enablement. The bridge
-restores IME contexts for Blender windows, hooks the main GHOST window
-procedure, and routes supported Win32 and IME messages through Blender-aware
-target handling.
+During registration, the add-on schedules automatic enablement only when the
+selected native backend reports that it supports a real bridge. The current
+Windows backend restores IME contexts for Blender windows, hooks the main GHOST
+window procedure, and routes supported Win32 and IME messages through
+Blender-aware target handling. Unsupported platforms use the no-op backend so
+registration, preferences, and cleanup stay safe without pretending input is
+handled.
 
 Mouse clicks are classified into three scopes: supported text targets,
 shortcut-heavy editor canvases, and neutral UI. Supported targets keep IMEBridge
@@ -58,3 +63,5 @@ shortcut surface immediately after confirming text.
 - IMEBridge only restores IME states it closed itself.
 - Native Blender UI fields stay outside the bridge target whitelist.
 - Non-Windows and background sessions degrade to safe no-op behavior.
+- Platform-specific APIs stay behind the selected native backend or the
+  backend-facing bridge layer.

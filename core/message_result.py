@@ -1,23 +1,23 @@
-"""Return values used by the Win32 message router."""
+"""Return values used by native message routers."""
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class MessageResult:
-    """Whether a message was consumed, plus the value Win32 should receive."""
+    """Whether a message was consumed, plus the value the native hook should receive."""
 
     handled: bool = False
     value: int = 0
 
     @classmethod
     def pass_through(cls) -> "MessageResult":
-        """Let Blender's original window procedure see the message."""
+        """Let Blender's original native procedure see the message."""
         return cls(False, 0)
 
     @classmethod
     def handled_value(cls, value: int = 0) -> "MessageResult":
-        """Return a value to Win32 without forwarding the message."""
+        """Return a value to the native hook without forwarding the message."""
         return cls(True, value)
 
     @property

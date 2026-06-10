@@ -77,6 +77,7 @@ IMEBridge/
 ├─ __init__.py
 ├─ bridge/       # 窗口挂钩、IME 消息路由和输入状态切换
 ├─ core/         # 运行时状态、数据模型和安全清理
+├─ platforms/    # 平台后端选择，以及暂未支持平台的安全空实现
 ├─ preferences/  # 扩展偏好设置与界面文本
 ├─ targets/      # Blender 文本目标识别与文本写入
 └─ win32/        # Win32 / IMM32 ctypes 绑定

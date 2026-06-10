@@ -6,7 +6,7 @@ import bpy
 
 from . import nexus_whitelist
 from ..targets import detect as targets
-from ..win32 import api as win32_api
+from ..platforms import native as platform_api
 
 
 SCOPE_ENABLED_TARGET = "enabled_target"
@@ -49,7 +49,7 @@ class InputScope:
 
 def client_point_from_lparam(lparam: object) -> tuple[int, int]:
     """Mouse coordinates arrive packed as signed 16-bit client values."""
-    value = win32_api.ptr_value(lparam)
+    value = platform_api.ptr_value(lparam)
     x = value & 0xFFFF
     y = (value >> 16) & 0xFFFF
     if x >= 0x8000:
@@ -64,16 +64,16 @@ def area_hit_at_client_point(
     client_x: int,
     client_y: int,
 ) -> AreaHit | None:
-    """Map a Win32 mouse point back to Blender's current screen layout."""
-    win = win32_api.ensure_windows()
+    """Map a native mouse point back to Blender's current screen layout."""
+    win = platform_api.ensure()
     if win is None:
         return None
 
-    client_height = win32_api.client_height(win, hwnd)
+    client_height = platform_api.client_height(win, hwnd)
     if client_height is None:
         return None
 
-    screen_point = win32_api.client_to_screen(win, hwnd, client_x, client_y)
+    screen_point = platform_api.client_to_screen(win, hwnd, client_x, client_y)
     blender_y = client_height - client_y
     for window in candidate_windows(screen_point):
         try:
@@ -83,7 +83,7 @@ def area_hit_at_client_point(
             continue
         for area in areas:
             try:
-                region = win32_api.window_region(area)
+                region = platform_api.window_region(area)
             except (AttributeError, ReferenceError, RuntimeError):
                 continue
             if region is None:
@@ -130,7 +130,7 @@ def candidate_windows(screen_point: object = None) -> list[object]:
         if window is None:
             return
         try:
-            key = win32_api.ptr_value(window.as_pointer())
+            key = platform_api.ptr_value(window.as_pointer())
         except (AttributeError, ReferenceError, RuntimeError):
             return
         if key in seen:
