@@ -16,8 +16,6 @@ buttons after installation.
 - `win32/`: Win32, IMM32, window enumeration, and coordinate conversion.
 - `bridge/`: window hooks, message routing, IME scope switching,
   positioning, and guards.
-- `bridge/macos_debug_panel.py`: macOS diagnostic sidebar for testing Cocoa
-  view discovery, `beginIME`, and committed text callbacks before wiring fixes.
 - `targets/`: Blender target discovery plus Text Editor and 3D Text insertion.
 
 ## Input Flow

@@ -13,6 +13,7 @@ build/
 # Local editor and OS files
 .vscode/
 .idea/
+.serena/
 .DS_Store
 ._*
 Thumbs.db

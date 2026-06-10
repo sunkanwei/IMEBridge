@@ -13,7 +13,6 @@ from ..core import runtime
 
 SUPPORTS_NATIVE_BRIDGE = sys.platform == "darwin"
 COCOA_CANDIDATE_Y_PADDING = 56
-COCOA_CANDIDATE_Y_PADDING_PROP = "imebridge_macos_candidate_y_padding"
 
 
 @dataclass
@@ -628,24 +627,6 @@ def restore_ime_contexts() -> int:
     return 0
 
 
-def cocoa_candidate_y_padding(context: object = None) -> int:
-    """Runtime-tunable macOS candidate baseline correction in physical pixels."""
-    try:
-        context = context or bpy.context
-        wm = getattr(context, "window_manager", None)
-        if wm is None:
-            return COCOA_CANDIDATE_Y_PADDING
-        return int(
-            getattr(
-                wm,
-                COCOA_CANDIDATE_Y_PADDING_PROP,
-                COCOA_CANDIDATE_Y_PADDING,
-            )
-        )
-    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
-        return COCOA_CANDIDATE_Y_PADDING
-
-
 def apply_ime_window_position(
     api: MacOSApi,
     window: object,
@@ -658,7 +639,7 @@ def apply_ime_window_position(
         return False
     scale = api.backing_scale_factor()
     height = max(12, int(getattr(_info, "line_height", 18) or 18))
-    candidate_y = point.y + height + cocoa_candidate_y_padding()
+    candidate_y = point.y + height + COCOA_CANDIDATE_Y_PADDING
     return api.begin_ime(
         round(point.x / scale),
         round(candidate_y / scale),
