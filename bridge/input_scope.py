@@ -106,6 +106,51 @@ def area_hit_at_client_point(
     return None
 
 
+def area_hit_at_window_point(
+    window_x: int,
+    window_y: int,
+    window: object = None,
+) -> AreaHit | None:
+    """Map Blender window coordinates back to the current screen layout."""
+    windows = []
+    if window is not None:
+        windows.append(window)
+    for candidate in candidate_windows():
+        if candidate not in windows:
+            windows.append(candidate)
+
+    for item in windows:
+        try:
+            screen = item.screen
+            areas = tuple(screen.areas)
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
+        for area in areas:
+            try:
+                region = platform_api.window_region(area)
+            except (AttributeError, ReferenceError, RuntimeError):
+                continue
+            if region is None:
+                continue
+            if not (region.x <= window_x < region.x + region.width):
+                continue
+            if not (region.y <= window_y < region.y + region.height):
+                continue
+            try:
+                space = area.spaces.active
+            except (AttributeError, ReferenceError, RuntimeError):
+                continue
+            return AreaHit(
+                item,
+                area,
+                region,
+                space,
+                area_x=window_x - region.x,
+                area_y=window_y - region.y,
+            )
+    return None
+
+
 def window_contains_screen_point(window: object, screen_point: object) -> bool | None:
     """Use Blender window bounds when they are available."""
     if screen_point is None:
@@ -213,6 +258,24 @@ def from_mouse_lparam(hwnd: object, lparam: object) -> InputScope:
     """Resolve a mouse-down message into an IMEBridge input scope."""
     client_x, client_y = client_point_from_lparam(lparam)
     return classify_hit(hwnd, area_hit_at_client_point(hwnd, client_x, client_y))
+
+
+def from_event(context: object, event: object, hwnd: object = None) -> InputScope:
+    """Resolve a public Blender event into an IMEBridge input scope."""
+    try:
+        window_x = int(event.mouse_x)
+        window_y = int(event.mouse_y)
+    except (AttributeError, TypeError, ValueError):
+        return InputScope(SCOPE_NEUTRAL, hwnd=hwnd)
+
+    return classify_hit(
+        hwnd,
+        area_hit_at_window_point(
+            window_x,
+            window_y,
+            getattr(context, "window", None),
+        ),
+    )
 
 
 def scope_area_type(scope: InputScope) -> str:

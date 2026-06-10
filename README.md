@@ -2,13 +2,13 @@
 
 # IMEBridge
 
-让 Blender 的文本编辑体验真正支持 Windows 中文输入法。
+让 Blender 的文本编辑体验真正支持中文输入法。
 
 [![Blender](https://img.shields.io/badge/Blender-5.0--5.2-E87D0D?style=for-the-badge&logo=blender&logoColor=white)](https://www.blender.org/)
-[![Platform](https://img.shields.io/badge/Windows-x64-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![Platform](https://img.shields.io/badge/Windows%20%2F%20macOS-0078D4?style=for-the-badge)](https://www.blender.org/)
 [![License](https://img.shields.io/badge/License-GPL--3.0--or--later-2E7D32?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0.html)
 
-适用于 Blender 文本编辑器和 3D 文字编辑模式的 Windows IME 桥接扩展。
+适用于 Blender 文本编辑器和 3D 文字编辑模式的 IME 桥接扩展。
 
 [个人主页](https://space.bilibili.com/28036907) · [架构说明](./ARCHITECTURE.md)
 
@@ -16,9 +16,9 @@
 
 ## 它解决什么问题
 
-Blender 的部分文本编辑场景对 Windows 中文输入法并不友好，尤其是在文本编辑器和 3D 文字编辑模式里，候选框位置、确认输入、快捷键状态容易出现割裂。
+Blender 的部分文本编辑场景对中文输入法并不友好，尤其是在文本编辑器和 3D 文字编辑模式里，候选框位置、确认输入、快捷键状态容易出现割裂。
 
-IMEBridge 在 Blender 与 Windows IME 之间建立一层轻量桥接，让中文输入更接近日常桌面软件里的体验：候选框跟随文本位置、确认文本稳定写入、快捷键区域自动回到直接输入状态。
+IMEBridge 在 Blender 与系统 IME 之间建立一层轻量桥接，让中文输入更接近日常桌面软件里的体验：候选框跟随文本位置、确认文本稳定写入、快捷键区域自动回到直接输入状态。
 
 ## 功能亮点
 
@@ -36,9 +36,9 @@ IMEBridge 在 Blender 与 Windows IME 之间建立一层轻量桥接，让中文
 | 项目 | 支持情况 |
 | --- | --- |
 | Blender | 5.0.x、5.1.x、5.2.x |
-| 系统 | Windows x64 |
+| 系统 | Windows x64、macOS arm64 |
 | 扩展格式 | Blender Extension |
-| 输入法 | 使用 Windows IME / IMM32 的中文输入法 |
+| 输入法 | Windows IME / IMM32、macOS Cocoa IME |
 
 ## 安装方式
 
@@ -75,7 +75,7 @@ IMEBridge 只处理明确支持的 Blender 文本目标：
 IMEBridge/
 ├─ blender_manifest.toml
 ├─ __init__.py
-├─ bridge/       # 窗口挂钩、IME 消息路由和输入状态切换
+├─ bridge/       # 窗口挂钩、Mac 事件桥、IME 消息路由和输入状态切换
 ├─ core/         # 运行时状态、数据模型和安全清理
 ├─ platforms/    # 平台后端选择，以及暂未支持平台的安全空实现
 ├─ preferences/  # 扩展偏好设置与界面文本

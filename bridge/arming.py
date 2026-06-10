@@ -2,6 +2,7 @@
 
 from ..core import runtime
 from ..core import safe_ops
+from ..platforms import native as platform_api
 from ..targets import detect as targets
 
 
@@ -31,6 +32,13 @@ def _auto_arm_input() -> None:
 
     from . import hook
     from . import ime_context
+
+    if platform_api.backend_name() == "macos":
+        from . import macos_event_bridge
+
+        macos_event_bridge.start(insert_on_commit=True)
+        ime_context.update_ime_candidate_position(target=target)
+        return None
 
     ime_context.restore_ime_contexts()
     hook.start_hooks(insert_on_commit=True)

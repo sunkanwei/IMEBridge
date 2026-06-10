@@ -1,6 +1,7 @@
 import bpy
 
 from .bridge import ime_context
+from .bridge import macos_event_bridge
 from .bridge import window_hook
 from .preferences import config
 from .preferences import i18n
@@ -8,6 +9,7 @@ from .preferences import i18n
 
 _REGISTERED_CLASSES = (
     config.IMEBridgePreferences,
+    macos_event_bridge.IMEBRIDGE_OT_macos_event_bridge,
 )
 
 

@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 id = "IMEBridge"
 version = "0.1.0"
 name = "IMEBridge"
-tagline = "Bridge Windows IME input into Blender text editing"
+tagline = "Bridge native IME input into Blender text editing"
 maintainer = "Sunkanwei"
 website = "https://space.bilibili.com/28036907"
 type = "add-on"
@@ -15,7 +15,7 @@ license = [
 ]
 
 tags = ["System", "Text Editor", "User Interface"]
-platforms = ["windows-x64"]
+platforms = ["windows-x64", "macos-arm64"]
 
 [build]
 # README.md, build scripts, and .git/ are intentionally omitted.
@@ -29,6 +29,7 @@ paths = [
   "bridge/ime_guards.py",
   "bridge/ime_switch.py",
   "bridge/input_scope.py",
+  "bridge/macos_event_bridge.py",
   "bridge/message_router.py",
   "bridge/nexus_whitelist.py",
   "bridge/window_hook.py",
@@ -41,6 +42,7 @@ paths = [
   "preferences/config.py",
   "preferences/i18n.py",
   "platforms/__init__.py",
+  "platforms/macos.py",
   "platforms/native.py",
   "platforms/noop.py",
   "targets/__init__.py",

@@ -7,7 +7,7 @@ if os.name == "nt":
     from ..win32 import api as _backend
     _BACKEND_NAME = "windows"
 elif sys.platform == "darwin":
-    from . import noop as _backend
+    from . import macos as _backend
     _BACKEND_NAME = "macos"
 else:
     from . import noop as _backend

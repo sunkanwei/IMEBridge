@@ -27,6 +27,14 @@ def initialize_input_bridge(context: object = None) -> tuple[int, int]:
     if target is not None:
         target_state.set_active_target(target)
 
+    if platform_api.backend_name() == "macos":
+        from . import macos_event_bridge
+
+        started = macos_event_bridge.start(insert_on_commit=True)
+        if target is not None:
+            ime_context.update_ime_candidate_position(target=target)
+        return 0, started
+
     restored = ime_context.restore_ime_contexts()
     hooked = hook.start_hooks(insert_on_commit=True)
     if target is not None:
@@ -44,7 +52,7 @@ def _auto_enable_timer() -> float | None:
         return None
 
     initialize_input_bridge()
-    if runtime.state.hooks:
+    if runtime.state.hooks or _macos_bridge_running():
         runtime.state.auto_enable_attempts = 0
         return None
 
@@ -77,12 +85,27 @@ def cancel_auto_enable() -> None:
     arming.cancel_auto_arm()
 
 
+def _macos_bridge_running() -> bool:
+    """Check the modal macOS bridge only when that backend is selected."""
+    if platform_api.backend_name() != "macos":
+        return False
+    from . import macos_event_bridge
+
+    return macos_event_bridge.is_running()
+
+
 def stop_hooks() -> int:
     """Public lifecycle exit for hooks and deferred text work."""
     arming.cancel_auto_arm()
     from . import message_router
 
+    stopped_macos = 0
+    if platform_api.backend_name() == "macos":
+        from . import macos_event_bridge
+
+        stopped_macos = macos_event_bridge.stop()
+
     message_router.cancel_pending_input_scope()
     insert_queue.cancel()
     text_target.cancel_restore_guard()
-    return hook.stop_hooks()
+    return stopped_macos + hook.stop_hooks()

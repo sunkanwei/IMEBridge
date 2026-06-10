@@ -27,8 +27,12 @@ FONT_CANDIDATE_LINE_HEIGHT = 28
 
 def restore_ime_contexts() -> int:
     """Ask the backend to give Blender windows their default IME context back."""
+    backend_restore = getattr(platform_api, "restore_ime_contexts", None)
+    if callable(backend_restore):
+        return int(backend_restore())
+
     win = platform_api.ensure()
-    if win is None:
+    if win is None or not hasattr(win, "imm32"):
         return 0
 
     restored = 0
@@ -72,6 +76,12 @@ def read_composition_string(win: object, hwnd: object, index: int) -> str | None
 
 def ghost_window_for_ime(win: object, hwnd: object = None) -> object | None:
     """Find the Blender window the native IME backend should talk to right now."""
+    active_window = getattr(platform_api, "active_window", None)
+    if callable(active_window):
+        window = active_window(win, hwnd)
+        if window:
+            return window
+
     if hwnd and platform_api.class_name(win, hwnd) == "GHOST_WindowClass":
         return hwnd
 
@@ -205,6 +215,10 @@ def apply_ime_window_position(
     position: models.CandidatePosition,
 ) -> bool:
     """Apply both composition and candidate positions while the HIMC is held."""
+    backend_apply = getattr(platform_api, "apply_ime_window_position", None)
+    if callable(backend_apply):
+        return bool(backend_apply(win, hwnd, info, position))
+
     client_point = platform_api.screen_to_client(
         win,
         hwnd,

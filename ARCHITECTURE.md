@@ -1,6 +1,6 @@
 # IMEBridge Architecture
 
-IMEBridge is a Windows IME bridge for Blender. It enables IME-based text input
+IMEBridge is a native IME bridge for Blender. It enables IME-based text input
 in Blender's Text Editor and 3D Text edit mode without requiring manual panel
 buttons after installation.
 
@@ -11,6 +11,8 @@ buttons after installation.
 - `core/`: shared models, runtime state, safe cleanup, and message results.
 - `platforms/`: native backend selection plus safe no-op behavior for
   platforms without a real bridge yet.
+- `platforms/macos.py`: Cocoa IME focus and candidate placement through
+  Blender's existing macOS `NSTextInputClient` view.
 - `win32/`: Win32, IMM32, window enumeration, and coordinate conversion.
 - `bridge/`: window hooks, message routing, IME scope switching,
   positioning, and guards.
@@ -19,23 +21,26 @@ buttons after installation.
 ## Input Flow
 
 During registration, the add-on schedules automatic enablement only when the
-selected native backend reports that it supports a real bridge. The current
-Windows backend restores IME contexts for Blender windows, hooks the main GHOST
-window procedure, and routes supported Win32 and IME messages through
-Blender-aware target handling. Unsupported platforms use the no-op backend so
-registration, preferences, and cleanup stay safe without pretending input is
-handled.
+selected native backend reports that it supports a real bridge. The Windows
+backend restores IME contexts for Blender windows, hooks the main GHOST window
+procedure, and routes supported Win32 and IME messages through Blender-aware
+target handling. The macOS backend starts a hidden modal operator, receives
+public `TEXTINPUT` events, and uses Blender's Cocoa view `beginIME` / `endIME`
+entry points for IME focus and candidate placement. Unsupported platforms use
+the no-op backend so registration, preferences, and cleanup stay safe without
+pretending input is handled.
 
 Mouse clicks are classified into three scopes: supported text targets,
 shortcut-heavy editor canvases, and neutral UI. Supported targets keep IMEBridge
-active. Shortcut canvases temporarily close the current Blender window IME so
-Blender shortcuts remain direct input. The bridge records the IME open flag plus
-conversion and sentence modes before this plugin-driven close, then restores the
-recorded state when a supported text target becomes active again. Neutral UI
-clears IMEBridge targets and undoes any plugin-driven close, but does not guess
-at Blender's native text widgets. Shortcuts that open Blender's own text UI,
-such as search, rename, and Text Editor find, are treated as neutral before
-Blender handles them.
+active. Shortcut canvases temporarily close or end the backend-owned IME focus
+so Blender shortcuts remain direct input. The Windows backend records the IME
+open flag plus conversion and sentence modes before this plugin-driven close,
+then restores the recorded state when a supported text target becomes active
+again. The macOS backend ends the Cocoa IME session without switching the user's
+system input source. Neutral UI clears IMEBridge targets and undoes any
+plugin-driven close, but does not guess at Blender's native text widgets.
+Shortcuts that open Blender's own text UI, such as search, rename, and Text
+Editor find, are treated as neutral before Blender handles them.
 Known add-on surfaces such as NexusUI are also classified as neutral before the
 shortcut-canvas rule when their own visible UI layers are hit.
 
@@ -59,9 +64,10 @@ shortcut surface immediately after confirming text.
 
 - Exceptions must never escape a Win32 window procedure.
 - Hook restoration only runs when the current window procedure is still ours.
+- Objective-C runtime calls must keep explicit ctypes signatures before use.
 - Text Editor and 3D Text input paths are intentionally separate.
 - IMEBridge only restores IME states it closed itself.
 - Native Blender UI fields stay outside the bridge target whitelist.
-- Non-Windows and background sessions degrade to safe no-op behavior.
+- Unsupported and background sessions degrade to safe no-op behavior.
 - Platform-specific APIs stay behind the selected native backend or the
   backend-facing bridge layer.
