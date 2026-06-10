@@ -304,6 +304,15 @@ class Win32Api:
             wintypes.BOOL,
         )
         self._declare(
+            self.imm32.ImmSetConversionStatus,
+            [
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.DWORD,
+            ],
+            wintypes.BOOL,
+        )
+        self._declare(
             self.imm32.ImmSetOpenStatus,
             [wintypes.HANDLE, wintypes.BOOL],
             wintypes.BOOL,

@@ -49,10 +49,12 @@ class FontResultDedupState:
 
 @dataclass
 class ManagedImeState:
-    """The IME open state before IMEBridge temporarily closed a window."""
+    """The IME state before IMEBridge temporarily closed a window."""
 
     hwnd: object
     was_open: bool
+    conversion: int | None = None
+    sentence: int | None = None
 
 
 @dataclass

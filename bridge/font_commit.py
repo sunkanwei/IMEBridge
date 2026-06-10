@@ -94,16 +94,29 @@ def mark_recent_font_result(target: object, text: str | None) -> None:
     state.until = time.monotonic() + FONT_RESULT_DEDUP_SECONDS
 
 
-def is_recent_font_result_char(target: object, char: str) -> bool:
-    """Check whether a char fallback is just echoing a result string."""
+def recent_font_commit_active() -> bool:
+    """Keep the 3D Text target trusted while late IME messages settle."""
     state = runtime.state.font_result_dedup
     if not state.target_key:
         return False
     if time.monotonic() > state.until:
         state.clear()
         return False
-    if state.target_key != font_result_target_key(target):
+    return True
+
+
+def is_recent_font_target(target: object) -> bool:
+    """Check whether a Font target owns the current settling window."""
+    if not recent_font_commit_active():
         return False
+    return runtime.state.font_result_dedup.target_key == font_result_target_key(target)
+
+
+def is_recent_font_result_char(target: object, char: str) -> bool:
+    """Check whether a char fallback is just echoing a result string."""
+    if not is_recent_font_target(target):
+        return False
+    state = runtime.state.font_result_dedup
     return bool(char) and char in state.text
 
 
@@ -146,5 +159,6 @@ def handle_font_char_commit(
 
     target_state.set_active_target(target)
     insert_queue.queue(char, target)
+    mark_recent_font_result(target, char)
     ime_guards.mark_space_suppression(hwnd)
     return 0

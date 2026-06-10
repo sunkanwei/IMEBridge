@@ -24,10 +24,13 @@ target handling.
 Mouse clicks are classified into three scopes: supported text targets,
 shortcut-heavy editor canvases, and neutral UI. Supported targets keep IMEBridge
 active. Shortcut canvases temporarily close the current Blender window IME so
-Blender shortcuts remain direct input. Neutral UI clears IMEBridge targets and
-undoes any plugin-driven close, but does not guess at Blender's native text
-widgets. Shortcuts that open Blender's own text UI, such as search, rename, and
-Text Editor find, are treated as neutral before Blender handles them.
+Blender shortcuts remain direct input. The bridge records the IME open flag plus
+conversion and sentence modes before this plugin-driven close, then restores the
+recorded state when a supported text target becomes active again. Neutral UI
+clears IMEBridge targets and undoes any plugin-driven close, but does not guess
+at Blender's native text widgets. Shortcuts that open Blender's own text UI,
+such as search, rename, and Text Editor find, are treated as neutral before
+Blender handles them.
 Known add-on surfaces such as NexusUI are also classified as neutral before the
 shortcut-canvas rule when their own visible UI layers are hit.
 
@@ -43,6 +46,9 @@ English input instead of being treated as leaked pinyin.
 The 3D Text path intentionally uses a different strategy. It suppresses the
 confirmation space at the Win32 message layer before Blender's native font edit
 mode can consume it, then inserts committed text through Blender's font operator.
+After a 3D Text IME commit, late IME messages keep the font target trusted for a
+short settling window so the surrounding View3D is not misclassified as a
+shortcut surface immediately after confirming text.
 
 ## Invariants
 

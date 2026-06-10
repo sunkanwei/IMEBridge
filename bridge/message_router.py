@@ -41,6 +41,18 @@ def target_area_type(target: object) -> str:
     return str(getattr(area, "type", "") or "")
 
 
+def recent_font_target_from_state() -> object | None:
+    """Keep a just-committed 3D Text target through late IME messages."""
+    target = runtime.state.composition_target or runtime.state.active_target
+    if not models.is_font_edit_target(target):
+        return None
+    if not font_commit.is_recent_font_target(target):
+        return None
+    if targets.active_font_edit_object() != getattr(target, "obj", None):
+        return None
+    return target
+
+
 def clear_bridge_target_state() -> None:
     """Forget only the target state owned by IMEBridge."""
     target_state.clear_active_target()
@@ -63,6 +75,9 @@ def apply_enabled_scope(scope: input_scope.InputScope) -> None:
 
 def apply_shortcut_scope(scope: input_scope.InputScope) -> None:
     """Close the IME where Blender expects direct shortcut keystrokes."""
+    if refresh_scope_from_context(scope.hwnd):
+        return
+
     clear_bridge_target_state()
     if config.auto_english_on_shortcuts():
         ime_switch.close_for_shortcut_surface(scope.hwnd)
@@ -105,6 +120,8 @@ def scope_target_from_context() -> object | None:
 def refresh_scope_from_context(hwnd: object) -> bool:
     """Promote a stale shortcut scope when Blender now has a text target."""
     target = scope_target_from_context()
+    if target is None:
+        target = recent_font_target_from_state()
     if target is None:
         return False
 
@@ -155,6 +172,10 @@ def handle_mouse_down(hwnd: object, lparam: object) -> None:
     if scope.kind == input_scope.SCOPE_ENABLED_TARGET and scope.target is not None:
         target_state.set_active_target(scope.target)
         arming.request_auto_arm()
+    elif scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE and refresh_scope_from_context(
+        hwnd
+    ):
+        pass
     else:
         clear_bridge_target_state()
 

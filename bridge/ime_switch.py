@@ -12,15 +12,38 @@ def hwnd_key(hwnd: object) -> int:
     return win32_api.ptr_value(hwnd)
 
 
+def conversion_status_for_context(
+    win: object,
+    himc: object,
+) -> tuple[int, int] | None:
+    """Read conversion and sentence modes from an already acquired HIMC."""
+    conversion = wintypes.DWORD()
+    sentence = wintypes.DWORD()
+    if not win.imm32.ImmGetConversionStatus(
+        himc,
+        ctypes.byref(conversion),
+        ctypes.byref(sentence),
+    ):
+        return None
+    return int(conversion.value), int(sentence.value)
+
+
 def remember_open_status(win: object, hwnd: object, himc: object) -> None:
-    """Keep the user's state so a plugin-driven close can be undone later."""
+    """Keep the user's IME state so a plugin-driven close can be undone later."""
     key = hwnd_key(hwnd)
     if key in runtime.state.input_scope.managed_open_status:
         return
     was_open = bool(win.imm32.ImmGetOpenStatus(himc))
+    status = conversion_status_for_context(win, himc)
+    conversion = None
+    sentence = None
+    if status is not None:
+        conversion, sentence = status
     runtime.state.input_scope.managed_open_status[key] = runtime.ManagedImeState(
         hwnd=hwnd,
         was_open=was_open,
+        conversion=conversion,
+        sentence=sentence,
     )
 
 
@@ -65,15 +88,7 @@ def conversion_status(win: object, hwnd: object) -> tuple[int, int] | None:
         return None
 
     try:
-        conversion = wintypes.DWORD()
-        sentence = wintypes.DWORD()
-        if not win.imm32.ImmGetConversionStatus(
-            himc,
-            ctypes.byref(conversion),
-            ctypes.byref(sentence),
-        ):
-            return None
-        return int(conversion.value), int(sentence.value)
+        return conversion_status_for_context(win, himc)
     finally:
         win.imm32.ImmReleaseContext(hwnd, himc)
 
@@ -88,6 +103,23 @@ def is_native_conversion_mode(win: object, hwnd: object) -> bool | None:
     if conversion & win.IME_CMODE_NOCONVERSION:
         return False
     return bool(conversion & win.IME_CMODE_NATIVE)
+
+
+def restore_conversion_status(
+    win: object,
+    himc: object,
+    record: runtime.ManagedImeState,
+) -> bool:
+    """Best-effort restore for IMEs that expose conversion modes."""
+    if record.conversion is None or record.sentence is None:
+        return True
+    return bool(
+        win.imm32.ImmSetConversionStatus(
+            himc,
+            record.conversion,
+            record.sentence,
+        )
+    )
 
 
 def close_for_shortcut_surface(hwnd: object) -> bool:
@@ -125,7 +157,9 @@ def restore_if_managed(hwnd: object) -> bool:
 
     try:
         restored = bool(win.imm32.ImmSetOpenStatus(himc, True))
-        if not restored:
+        if restored:
+            restore_conversion_status(win, himc, record)
+        else:
             runtime.state.input_scope.managed_open_status[key] = record
         return restored
     finally:
