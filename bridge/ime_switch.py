@@ -124,6 +124,7 @@ def restore_conversion_status(
 def close_for_shortcut_surface(hwnd: object) -> bool:
     """Temporarily put this Blender window into direct-input mode."""
     win = platform_api.ensure()
+    key = hwnd_key(hwnd)
     if win is None or not hwnd:
         return False
 
@@ -132,6 +133,11 @@ def close_for_shortcut_surface(hwnd: object) -> bool:
         return False
 
     try:
+        already_managed = key in runtime.state.input_scope.managed_open_status
+        open_before = bool(win.imm32.ImmGetOpenStatus(himc))
+        if already_managed and not open_before:
+            return True
+
         remember_open_status(win, hwnd, himc)
         cancel_composition(win, himc)
         return bool(win.imm32.ImmSetOpenStatus(himc, False))

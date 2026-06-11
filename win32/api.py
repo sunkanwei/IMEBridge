@@ -96,8 +96,6 @@ class RAWINPUT(ctypes.Structure):
 class Win32Api:
     """Loaded Win32 DLLs plus the signatures this bridge relies on."""
 
-    GWL_WNDPROC = -4
-
     IACE_DEFAULT = 0x0010
     RID_INPUT = 0x10000003
     RIM_TYPEKEYBOARD = 1
@@ -109,6 +107,7 @@ class Win32Api:
     WM_SETFOCUS = 0x0007
     WM_KILLFOCUS = 0x0008
     WM_ACTIVATEAPP = 0x001C
+    WM_NCDESTROY = 0x0082
     WM_INPUT = 0x00FF
     WM_LBUTTONDOWN = 0x0201
     WM_LBUTTONDBLCLK = 0x0203
@@ -123,6 +122,7 @@ class Win32Api:
     WM_IME_STARTCOMPOSITION = 0x010D
     WM_IME_ENDCOMPOSITION = 0x010E
     WM_IME_COMPOSITION = 0x010F
+    WM_IME_NOTIFY = 0x0282
     WM_IME_CHAR = 0x0286
     WM_IME_REQUEST = 0x0288
     WM_IME_KEYDOWN = 0x0290
@@ -147,6 +147,7 @@ class Win32Api:
     VK_DELETE = 0x2E
     VK_F2 = 0x71
     VK_F3 = 0x72
+    VK_PROCESSKEY = 0xE5
     VK_OEM_102 = 0xE2
     VK_SPACE = 0x20
 
@@ -159,20 +160,27 @@ class Win32Api:
     IMR_QUERYCHARPOSITION = 0x0006
     NI_CLOSECANDIDATE = 0x0011
     NI_COMPOSITIONSTR = 0x0015
+    IMN_SETOPENSTATUS = 0x0008
     CPS_CANCEL = 0x0004
 
     def __init__(self) -> None:
         """Load the DLLs once and wire up ctypes signatures immediately."""
         self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.comctl32 = ctypes.WinDLL("comctl32", use_last_error=True)
         self.imm32 = ctypes.WinDLL("imm32", use_last_error=True)
 
         self.LRESULT = ctypes.c_ssize_t
-        self.WNDPROC = ctypes.WINFUNCTYPE(
+        self.UINT_PTR = ctypes.c_size_t
+        self.DWORD_PTR = ctypes.c_size_t
+        self.SUBCLASSPROC = ctypes.WINFUNCTYPE(
             self.LRESULT,
             wintypes.HWND,
             wintypes.UINT,
             wintypes.WPARAM,
             wintypes.LPARAM,
+            self.UINT_PTR,
+            self.DWORD_PTR,
         )
 
         self.EnumWindowsProc = ctypes.WINFUNCTYPE(
@@ -192,7 +200,8 @@ class Win32Api:
     def _configure_functions(self) -> None:
         """Group declarations by the Windows subsystem they belong to."""
         self._configure_user32_functions()
-        self._configure_window_proc_functions()
+        self._configure_kernel32_functions()
+        self._configure_subclass_functions()
         self._configure_imm32_functions()
 
     def _configure_user32_functions(self) -> None:
@@ -241,17 +250,6 @@ class Win32Api:
             wintypes.BOOL,
         )
         self._declare(
-            self.user32.CallWindowProcW,
-            [
-                ctypes.c_void_p,
-                wintypes.HWND,
-                wintypes.UINT,
-                wintypes.WPARAM,
-                wintypes.LPARAM,
-            ],
-            self.LRESULT,
-        )
-        self._declare(
             self.user32.GetRawInputData,
             [
                 wintypes.HANDLE,
@@ -263,26 +261,29 @@ class Win32Api:
             wintypes.UINT,
         )
 
-    def _configure_window_proc_functions(self) -> None:
-        """Pick the pointer-sized window-procedure APIs when available."""
-        if hasattr(self.user32, "SetWindowLongPtrW"):
-            self.GetWindowLongPtrW = self.user32.GetWindowLongPtrW
-            self.SetWindowLongPtrW = self.user32.SetWindowLongPtrW
-            ptr_type = ctypes.c_void_p
-        else:
-            self.GetWindowLongPtrW = self.user32.GetWindowLongW
-            self.SetWindowLongPtrW = self.user32.SetWindowLongW
-            ptr_type = wintypes.LONG
+    def _configure_kernel32_functions(self) -> None:
+        """kernel32 provides the current UI-thread boundary."""
+        self._declare(self.kernel32.GetCurrentThreadId, [], wintypes.DWORD)
 
+    def _configure_subclass_functions(self) -> None:
+        """Comctl32 owns safe multi-client window subclassing."""
+        self.SetWindowSubclass = self.comctl32.SetWindowSubclass
+        self.RemoveWindowSubclass = self.comctl32.RemoveWindowSubclass
+        self.DefSubclassProc = self.comctl32.DefSubclassProc
         self._declare(
-            self.GetWindowLongPtrW,
-            [wintypes.HWND, ctypes.c_int],
-            ctypes.c_void_p,
+            self.SetWindowSubclass,
+            [wintypes.HWND, self.SUBCLASSPROC, self.UINT_PTR, self.DWORD_PTR],
+            wintypes.BOOL,
         )
         self._declare(
-            self.SetWindowLongPtrW,
-            [wintypes.HWND, ctypes.c_int, ptr_type],
-            ctypes.c_void_p,
+            self.RemoveWindowSubclass,
+            [wintypes.HWND, self.SUBCLASSPROC, self.UINT_PTR],
+            wintypes.BOOL,
+        )
+        self._declare(
+            self.DefSubclassProc,
+            [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM],
+            self.LRESULT,
         )
 
     def _configure_imm32_functions(self) -> None:
@@ -379,11 +380,21 @@ def class_name(win: Win32Api, hwnd: object) -> str:
     return buffer.value
 
 
+def window_thread_process_id(win: Win32Api, hwnd: object) -> tuple[int, int]:
+    """Return the owning thread and process ids for a window handle."""
+    pid = wintypes.DWORD()
+    thread_id = win.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return int(thread_id), int(pid.value)
+
+
 def window_process_id(win: Win32Api, hwnd: object) -> int:
     """Return the owning process id for a window handle."""
-    pid = wintypes.DWORD()
-    win.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    return int(pid.value)
+    return window_thread_process_id(win, hwnd)[1]
+
+
+def current_thread_id(win: Win32Api) -> int:
+    """Return the thread currently running this Python hook setup."""
+    return int(win.kernel32.GetCurrentThreadId())
 
 
 def is_current_process_window(win: Win32Api, hwnd: object) -> bool:
@@ -398,6 +409,7 @@ def enum_process_windows(include_children: bool = True) -> list[dict[str, object
         return []
 
     current_pid = os.getpid()
+    current_tid = current_thread_id(win)
     windows = []
     seen = set()
     top_level_hwnds = []
@@ -407,13 +419,16 @@ def enum_process_windows(include_children: bool = True) -> list[dict[str, object
         hwnd_value = ptr_value(hwnd)
         if hwnd_value in seen:
             return
-        if window_process_id(win, hwnd) != current_pid:
+        thread_id, process_id = window_thread_process_id(win, hwnd)
+        if process_id != current_pid:
             return
         seen.add(hwnd_value)
         visible = bool(win.user32.IsWindowVisible(hwnd))
         info = {
             "hwnd": hwnd,
             "hwnd_value": hwnd_value,
+            "thread_id": thread_id,
+            "current_thread": thread_id == current_tid,
             "visible": visible,
             "class": class_name(win, hwnd),
         }

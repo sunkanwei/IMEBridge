@@ -138,7 +138,6 @@ def reset_runtime() -> None:
     runtime = import_bridge_module("core.runtime")
     runtime.state.win = None
     runtime.state.hooks.clear()
-    runtime.state.detached_hooks.clear()
     runtime.state.auto_enable_timer_registered = False
     runtime.state.auto_enable_attempts = 0
     runtime.state.clear_input_state()

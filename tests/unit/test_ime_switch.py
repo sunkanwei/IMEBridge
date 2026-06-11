@@ -35,6 +35,15 @@ class ImeSwitchTests(unittest.TestCase):
             self.assertTrue(self.ime_switch.restore_if_managed(99))
         self.assertEqual(self.win.imm32.set_open_calls, [False])
 
+    def test_repeated_close_is_idempotent_after_bridge_closes_ime(self) -> None:
+        self.win.imm32.open_status = True
+
+        with patched(self.ime_switch.platform_api, "ensure", lambda: self.win):
+            self.assertTrue(self.ime_switch.close_for_shortcut_surface(88))
+            self.assertTrue(self.ime_switch.close_for_shortcut_surface(88))
+
+        self.assertEqual(self.win.imm32.set_open_calls, [False])
+
 
 if __name__ == "__main__":
     unittest.main()

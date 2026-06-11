@@ -22,9 +22,10 @@ buttons after installation.
 
 During registration, the add-on schedules automatic enablement only when the
 selected native backend reports that it supports a real bridge. The Windows
-backend restores IME contexts for Blender windows, hooks the main GHOST window
-procedure, and routes supported Win32 and IME messages through Blender-aware
-target handling. The macOS backend installs a Cocoa `insertText:replacementRange:`
+backend restores IME contexts for Blender windows, installs a system-managed
+subclass callback on the main GHOST window, and routes supported Win32 and IME
+messages through Blender-aware target handling. The macOS backend installs a
+Cocoa `insertText:replacementRange:`
 callback on Blender's text-input views, mirrors committed text into the shared
 insertion queue, and uses Blender's Cocoa view `beginIME` / `endIME` entry
 points for IME focus and candidate placement. Unsupported platforms use the
@@ -66,8 +67,10 @@ shortcut surface immediately after confirming text.
 
 ## Invariants
 
-- Exceptions must never escape a Win32 window procedure.
-- Hook restoration only runs when the current window procedure is still ours.
+- Exceptions must never escape a Win32 subclass procedure.
+- Windows subclasses are removed by their callback and subclass ID; failed
+  removals keep callbacks inert but alive.
+- Windows subclassing is limited to Blender windows owned by the current thread.
 - Objective-C runtime calls must keep explicit ctypes signatures before use.
 - Text Editor and 3D Text input paths are intentionally separate.
 - IMEBridge only restores IME states it closed itself.

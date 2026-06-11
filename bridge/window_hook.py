@@ -54,7 +54,7 @@ def _auto_enable_timer() -> float | None:
         return None
 
     initialize_input_bridge()
-    if runtime.state.hooks or _macos_bridge_running():
+    if hook.has_active_hooks() or _macos_bridge_running():
         runtime.state.auto_enable_attempts = 0
         return None
 

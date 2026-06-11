@@ -285,7 +285,6 @@ class RuntimeState:
 
     win: object = None
     hooks: dict = field(default_factory=dict)
-    detached_hooks: list = field(default_factory=list)
 
     insert_on_commit: bool = False
     pending_inserts: deque = field(default_factory=deque)
