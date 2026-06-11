@@ -262,7 +262,7 @@ class MacOSApi:
         window = ptr_value(window) or self.active_ns_window()
         if not window:
             return None
-        
+
         sel_mouse = self.objc.sel("mouseLocationOutsideOfEventStream")
         if not self.objc.responds(window, sel_mouse):
             return None
