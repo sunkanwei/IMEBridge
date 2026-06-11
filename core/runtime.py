@@ -21,6 +21,21 @@ class SpaceSuppressionState:
 
 
 @dataclass
+class TabIndentState:
+    """Deferred Text Editor indentation after suppressing Unicode autocomplete."""
+
+    target: object = None
+    count: int = 0
+    timer_registered: bool = False
+
+    def clear(self) -> None:
+        """Drop pending indentation."""
+        self.target = None
+        self.count = 0
+        self.timer_registered = False
+
+
+@dataclass
 class FontResultDedupState:
     """Last 3D Text commit seen through the character-message fallback."""
 
@@ -155,6 +170,7 @@ class RuntimeState:
     space_suppression: SpaceSuppressionState = field(
         default_factory=SpaceSuppressionState
     )
+    tab_indent: TabIndentState = field(default_factory=TabIndentState)
     font_result_dedup: FontResultDedupState = field(
         default_factory=FontResultDedupState
     )
@@ -171,6 +187,7 @@ class RuntimeState:
         self.active_target = None
         self.composition_target = None
         self.space_suppression.clear()
+        self.tab_indent.clear()
         self.font_result_dedup.clear()
         self.input_scope.clear()
 

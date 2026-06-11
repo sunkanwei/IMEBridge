@@ -101,6 +101,7 @@ class Win32Api:
     IACE_DEFAULT = 0x0010
     RID_INPUT = 0x10000003
     RIM_TYPEKEYBOARD = 1
+    RI_KEY_BREAK = 0x0001
     CFS_POINT = 0x0002
     CFS_EXCLUDE = 0x0080
 
@@ -117,6 +118,7 @@ class Win32Api:
     WM_KEYDOWN = 0x0100
     WM_KEYUP = 0x0101
     WM_CHAR = 0x0102
+    WM_SYSKEYUP = 0x0105
     WM_IME_STARTCOMPOSITION = 0x010D
     WM_IME_ENDCOMPOSITION = 0x010E
     WM_IME_COMPOSITION = 0x010F
@@ -126,7 +128,9 @@ class Win32Api:
     WM_IME_KEYUP = 0x0291
 
     VK_BACK = 0x08
+    VK_TAB = 0x09
     VK_RETURN = 0x0D
+    VK_SHIFT = 0x10
     VK_ESCAPE = 0x1B
     VK_CONTROL = 0x11
     VK_MENU = 0x12
@@ -516,7 +520,7 @@ def region_rect_to_screen(win: Win32Api, hwnd: object, region: object) -> object
 
 
 def read_raw_keyboard(win: Win32Api, lparam: object) -> dict[str, int] | None:
-    """Read WM_INPUT just far enough to learn the virtual key."""
+    """Read WM_INPUT just far enough to mirror GHOST's key-down decision."""
     size = wintypes.UINT(0)
     header_size = ctypes.sizeof(RAWINPUTHEADER)
     result = win.user32.GetRawInputData(
@@ -545,6 +549,13 @@ def read_raw_keyboard(win: Win32Api, lparam: object) -> dict[str, int] | None:
         return None
 
     keyboard = raw.data.keyboard
+    is_down = not (
+        int(keyboard.Flags) & win.RI_KEY_BREAK
+    ) and int(keyboard.Message) not in {win.WM_KEYUP, win.WM_SYSKEYUP}
     return {
+        "flags": int(keyboard.Flags),
+        "key_down": int(is_down),
+        "make_code": int(keyboard.MakeCode),
+        "message": int(keyboard.Message),
         "vkey": int(keyboard.VKey),
     }

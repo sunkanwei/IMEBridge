@@ -110,4 +110,5 @@ def stop_hooks() -> int:
     message_router.cancel_pending_input_scope()
     insert_queue.cancel()
     text_target.cancel_restore_guard()
+    text_target.cancel_tab_indent()
     return stopped_macos + hook.stop_hooks()

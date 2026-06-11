@@ -55,6 +55,7 @@ def clear_bridge_target_state() -> None:
     target_state.clear_active_target()
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
+    text_target.cancel_tab_indent()
     runtime.state.font_result_dedup.clear()
 
 

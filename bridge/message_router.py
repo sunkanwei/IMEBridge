@@ -64,6 +64,7 @@ def clear_bridge_target_state() -> None:
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
     ime_guards.clear_space_suppression()
+    text_target.cancel_tab_indent()
     runtime.state.font_result_dedup.clear()
 
 
@@ -253,6 +254,11 @@ def alt_is_down(win: object) -> bool:
     return bool(win.user32.GetKeyState(win.VK_MENU) & 0x8000)
 
 
+def shift_is_down(win: object) -> bool:
+    """Shift+Tab still belongs to Blender's unindent shortcut."""
+    return bool(win.user32.GetKeyState(win.VK_SHIFT) & 0x8000)
+
+
 def opens_native_text_ui(win: object, msg_value: int, wparam: object) -> bool:
     """Public shortcuts that hand focus to Blender's own text fields."""
     if msg_value != win.WM_KEYDOWN:
@@ -297,6 +303,46 @@ def handle_native_text_ui_release(
     clear_native_text_ui_handoff()
     set_neutral_scope()
     return True
+
+
+def handle_unicode_text_tab(
+    win: object,
+    hwnd: object,
+    msg_value: int,
+    lparam: object,
+) -> int | None:
+    """Turn raw Tab after Unicode text into indentation instead of autocomplete."""
+    if msg_value != win.WM_INPUT:
+        return None
+
+    raw = platform_api.read_raw_keyboard(win, lparam)
+    if raw is None or raw["vkey"] != win.VK_TAB:
+        return None
+    if not raw["key_down"]:
+        return None
+
+    if ctrl_is_down(win) or alt_is_down(win) or shift_is_down(win):
+        return None
+    if not bridge_ime_allowed():
+        return None
+    if ime_guards.ime_is_composing(win, hwnd, ime_context.read_composition_string):
+        return None
+
+    target = targets.resolve_input_target(
+        runtime.state.composition_target,
+        runtime.state.active_target,
+        bpy.context,
+    )
+    if not models.is_text_editor_target(target):
+        return None
+
+    if not text_target.cursor_after_non_ascii_identifier(target):
+        return None
+
+    if not text_target.schedule_tab_indent(target):
+        return None
+
+    return 0
 
 
 def is_supported_message(win: object, msg_value: int) -> bool:
@@ -503,6 +549,10 @@ def handle_window_message(
     handle_native_text_ui_release(win, msg_value, wparam)
 
     refresh_scope_from_context(hwnd)
+
+    tab_result = handle_unicode_text_tab(win, hwnd, msg_value, lparam)
+    if tab_result is not None:
+        return message_result.MessageResult.handled_value(tab_result)
 
     guard_result = ime_guards.handle_message_guards(
         win,

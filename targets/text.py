@@ -9,6 +9,7 @@ from . import detect as targets
 
 
 TEXT_RESTORE_TIMER_INTERVAL = 0.02
+TEXT_TAB_INDENT_TIMER_INTERVAL = 0.0
 
 
 def text_data_from_target(target: object) -> object | None:
@@ -39,6 +40,44 @@ def same_text_data(left: object, right: object) -> bool:
         return left == right
     except (ReferenceError, RuntimeError):
         return False
+
+
+def is_non_ascii_identifier_char(char: str) -> bool:
+    """Match Unicode identifier tails that Blender autocomplete can misread."""
+    if not char:
+        return False
+    return not char.isascii() and char.isalnum()
+
+
+def text_has_selection(text_data: object) -> bool:
+    """Check whether Text Editor selection is active."""
+    selection = text_selection_position(text_data)
+    if selection is None:
+        return False
+    line, column, select_line, select_column = selection
+    return line != select_line or column != select_column
+
+
+def char_before_cursor(text_data: object) -> str:
+    """Read the Unicode character directly before the Text Editor cursor."""
+    try:
+        line_index = int(text_data.current_line_index)
+        column = int(text_data.current_character)
+        line = text_data.lines[line_index].body
+    except (AttributeError, IndexError, ReferenceError, RuntimeError, ValueError):
+        return ""
+    if column <= 0:
+        return ""
+    column = min(column, len(line))
+    return line[column - 1 : column]
+
+
+def cursor_after_non_ascii_identifier(target: object) -> bool:
+    """Detect Unicode word tails where Tab should indent, not autocomplete."""
+    text_data = text_data_from_target(target)
+    if text_data is None or text_has_selection(text_data):
+        return False
+    return is_non_ascii_identifier_char(char_before_cursor(text_data))
 
 
 def capture_composition_start(target: object) -> models.TextImeSession | None:
@@ -333,6 +372,75 @@ def cancel_restore_guard() -> None:
     runtime.state.text_restore_timer_registered = False
     runtime.state.text_restore_guard = None
     safe_ops.unregister_timer(restore_text_after_ime_edit_key)
+
+
+def indent_once(target: object) -> bool:
+    """Run Blender's plain Text indent operator for one suppressed Tab."""
+    if not models.is_text_editor_target(target):
+        return False
+
+    context = targets.target_context(target)
+    if context is None or context["space"] is None:
+        return False
+    if getattr(context["space"], "text", None) != text_data_from_target(target):
+        return False
+
+    try:
+        with bpy.context.temp_override(
+            window=context["window"],
+            screen=context["screen"],
+            area=context["area"],
+            region=context["region"],
+            space_data=context["space"],
+        ):
+            if bpy.ops.text.indent.poll():
+                bpy.ops.text.indent()
+                return True
+    except (AttributeError, ReferenceError, RuntimeError):
+        return False
+    return False
+
+
+def flush_tab_indent_queue() -> None:
+    """Apply any Tab presses that were diverted away from autocomplete."""
+    state = runtime.state.tab_indent
+    state.timer_registered = False
+    target = state.target
+    count = state.count
+    state.target = None
+    state.count = 0
+
+    for _index in range(count):
+        if not indent_once(target):
+            break
+    return None
+
+
+def schedule_tab_indent(target: object) -> bool:
+    """Queue one plain indent action after suppressing Unicode autocomplete."""
+    state = runtime.state.tab_indent
+    state.target = target
+    state.count += 1
+    if state.timer_registered:
+        return True
+
+    if safe_ops.register_timer(
+        flush_tab_indent_queue,
+        first_interval=TEXT_TAB_INDENT_TIMER_INTERVAL,
+    ):
+        state.timer_registered = True
+        return True
+
+    state.count = max(0, state.count - 1)
+    if state.count == 0:
+        state.target = None
+    return False
+
+
+def cancel_tab_indent() -> None:
+    """Drop pending autocomplete-safe Tab indentation."""
+    runtime.state.tab_indent.clear()
+    safe_ops.unregister_timer(flush_tab_indent_queue)
 
 
 def active_text_session(text_data: object) -> models.TextImeSession | None:
