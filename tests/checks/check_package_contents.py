@@ -100,12 +100,19 @@ def missing_required_entries(package: Path, root: Path = ROOT) -> list[str]:
     return sorted(required - available)
 
 
+def unexpected_entries(package: Path, root: Path = ROOT) -> list[str]:
+    allowed = {"blender_manifest.toml", *manifest_paths(root)}
+    available = normalized_package_entries(package, root)
+    return sorted(available - allowed)
+
+
 def check_package(package: Path, root: Path = ROOT) -> list[str]:
     if not package.is_file():
         return [f"package not found: {package}"]
     bad = blocked_entries(package)
     layout = package_layout_messages(package, root)
     missing = [] if layout else missing_required_entries(package, root)
+    unexpected = [] if layout else unexpected_entries(package, root)
 
     messages: list[str] = []
     if bad:
@@ -115,6 +122,9 @@ def check_package(package: Path, root: Path = ROOT) -> list[str]:
     if missing:
         messages.append("Package is missing files required by [build].paths:")
         messages.extend(f"  {item}" for item in missing)
+    if unexpected:
+        messages.append("Package contains files outside [build].paths:")
+        messages.extend(f"  {item}" for item in unexpected)
     return messages
 
 

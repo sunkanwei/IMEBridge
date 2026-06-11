@@ -3,11 +3,14 @@
 import bpy
 
 
+STALE_BLENDER_ERRORS = (AttributeError, ReferenceError, RuntimeError, ValueError)
+
+
 def register_timer(callback: object, *, first_interval: float = 0.0) -> bool:
     """Register a Blender timer without leaving local state half-armed."""
     try:
         bpy.app.timers.register(callback, first_interval=first_interval)
-    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+    except STALE_BLENDER_ERRORS:
         return False
     return True
 
@@ -17,7 +20,7 @@ def unregister_timer(callback: object) -> bool:
     try:
         if bpy.app.timers.is_registered(callback):
             bpy.app.timers.unregister(callback)
-    except RuntimeError:
+    except STALE_BLENDER_ERRORS:
         return False
     return True
 
@@ -28,7 +31,7 @@ def remove_text_draw_handler(handler: object) -> bool:
         return False
     try:
         bpy.types.SpaceTextEditor.draw_handler_remove(handler, "WINDOW")
-    except (ValueError, RuntimeError):
+    except STALE_BLENDER_ERRORS:
         return False
     return True
 

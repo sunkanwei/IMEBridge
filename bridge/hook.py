@@ -55,11 +55,68 @@ def make_window_proc(win: object, old_proc: int, control: dict[str, bool]) -> ob
     return win.WNDPROC(wndproc)
 
 
-def keep_detached_hook(record: dict[str, object]) -> None:
+def record_hwnd_value(record: dict[str, object]) -> int:
+    """Return the stable integer key used for one hook record."""
+    return platform_api.ptr_value(record.get("hwnd"))
+
+
+def forget_detached_hook(record: dict[str, object]) -> None:
+    """Remove a hook from the detached keep-alive list if present."""
+    try:
+        runtime.state.detached_hooks.remove(record)
+    except ValueError:
+        pass
+
+
+def keep_detached_hook(
+    record: dict[str, object],
+    covering_proc: int | None = None,
+) -> None:
     """Keep callbacks alive if another add-on still owns the top of the chain."""
     record["control"]["active"] = False
+    if covering_proc:
+        record["covering_proc"] = covering_proc
     if record not in runtime.state.detached_hooks:
         runtime.state.detached_hooks.append(record)
+
+
+def reactivate_detached_hook(record: dict[str, object]) -> bool:
+    """Re-use an existing hook record instead of stacking a new callback."""
+    hwnd_value = record_hwnd_value(record)
+    if not hwnd_value:
+        forget_detached_hook(record)
+        return False
+    record["control"]["active"] = True
+    record.pop("covering_proc", None)
+    runtime.state.hooks[hwnd_value] = record
+    forget_detached_hook(record)
+    return True
+
+
+def sweep_detached_hooks(win: object, *, reactivate: bool = False) -> int:
+    """Restore or re-use callbacks that were previously covered by another hook."""
+    changed = 0
+    for record in list(runtime.state.detached_hooks):
+        hwnd = record["hwnd"]
+        if not win.user32.IsWindow(hwnd):
+            forget_detached_hook(record)
+            continue
+
+        current_proc = current_window_proc(win, hwnd)
+        callback_ptr = record["callback_ptr"]
+        covering_proc = record.get("covering_proc")
+        if reactivate and current_proc in {callback_ptr, covering_proc}:
+            if reactivate_detached_hook(record):
+                changed += 1
+            continue
+
+        if current_proc == callback_ptr:
+            if restore_hook(win, record):
+                forget_detached_hook(record)
+                changed += 1
+        else:
+            record["control"]["active"] = False
+    return changed
 
 
 def hook_window(win: object, item: dict[str, object]) -> bool:
@@ -68,11 +125,11 @@ def hook_window(win: object, item: dict[str, object]) -> bool:
     hwnd_value = item["hwnd_value"]
     if hwnd_value in runtime.state.hooks:
         record = runtime.state.hooks[hwnd_value]
-        if current_window_proc(win, hwnd) == record["callback_ptr"]:
-            record["control"]["active"] = True
-            return False
-        keep_detached_hook(record)
-        runtime.state.hooks.pop(hwnd_value, None)
+        current_proc = current_window_proc(win, hwnd)
+        if current_proc != record["callback_ptr"]:
+            record["covering_proc"] = current_proc
+        record["control"]["active"] = True
+        return False
     if not item["visible"] or not is_hook_target(item):
         return False
 
@@ -112,7 +169,7 @@ def start_hooks(insert_on_commit: bool = False) -> int:
         return 0
 
     runtime.state.insert_on_commit = bool(insert_on_commit)
-    hooked = 0
+    hooked = sweep_detached_hooks(win, reactivate=True)
     for item in platform_api.enum_process_windows(include_children=True):
         if hook_window(win, item):
             hooked += 1
@@ -130,8 +187,9 @@ def restore_hook(win: object, record: dict[str, object]) -> bool:
     if not win.user32.IsWindow(hwnd):
         return True
 
-    if current_window_proc(win, hwnd) != record["callback_ptr"]:
-        keep_detached_hook(record)
+    current_proc = current_window_proc(win, hwnd)
+    if current_proc != record["callback_ptr"]:
+        keep_detached_hook(record, current_proc)
         return False
 
     ctypes.set_last_error(0)
@@ -165,6 +223,7 @@ def stop_hooks() -> int:
             stopped += 1
         else:
             runtime.state.hooks.pop(hwnd_value, None)
+    stopped += sweep_detached_hooks(win)
 
     runtime.clear_input_state()
     runtime.clear_pending_inserts()

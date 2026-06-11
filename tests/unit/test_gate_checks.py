@@ -92,6 +92,38 @@ class GateCheckTests(unittest.TestCase):
 
             self.assertEqual(self.package_check.check_package(package, root), [])
 
+    def test_package_check_rejects_flat_extra_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(root, ["__init__.py", "core/runtime.py"])
+            package = root / "IMEBridge-0.2.0.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("blender_manifest.toml", "")
+                archive.writestr("__init__.py", "")
+                archive.writestr("core/runtime.py", "")
+                archive.writestr("docs/secret.md", "")
+
+            messages = "\n".join(self.package_check.check_package(package, root))
+
+        self.assertIn("files outside [build].paths", messages)
+        self.assertIn("docs/secret.md", messages)
+
+    def test_package_check_rejects_wrapped_extra_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(root, ["__init__.py", "core/runtime.py"])
+            package = root / "IMEBridge-0.2.0.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("IMEBridge/blender_manifest.toml", "")
+                archive.writestr("IMEBridge/__init__.py", "")
+                archive.writestr("IMEBridge/core/runtime.py", "")
+                archive.writestr("IMEBridge/docs/secret.md", "")
+
+            messages = "\n".join(self.package_check.check_package(package, root))
+
+        self.assertIn("files outside [build].paths", messages)
+        self.assertIn("docs/secret.md", messages)
+
     def test_package_check_rejects_mixed_top_level_wrappers(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

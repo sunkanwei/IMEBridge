@@ -100,25 +100,43 @@ def _confirm_space_leak_snapshot_is_active(
     return snapshot.target_key == font_target.target_key(target)
 
 
-def consume_confirm_space_leak_snapshot(
+def preview_confirm_space_leak_snapshot(
     hwnd: object,
     target: object,
     text: str | None,
 ) -> tuple[models.FontBodySnapshot | None, str | None]:
-    """Attach a valid leaked-Space snapshot to the next 3D Text commit."""
+    """Return the valid leaked-Space repair without mutating runtime state."""
     if not _confirm_space_leak_snapshot_is_active(hwnd, target):
         return None, text
     if not _ime_result_needs_space_leak_guard(text):
-        clear_confirm_space_leak()
         return None, text
 
     snapshot = runtime.state.font_confirm_space_leak.snapshot
     if not isinstance(snapshot, models.FontBodySnapshot):
         return None, text
     if font_target.confirm_space_leak_index(target, snapshot) is None:
-        clear_confirm_space_leak()
         return None, text
 
-    clear_confirm_space_leak()
     normalized = text[1:] if text.startswith(" ") else text
     return snapshot, normalized
+
+
+def consume_confirm_space_leak_snapshot(
+    hwnd: object,
+    target: object,
+    text: str | None,
+) -> tuple[models.FontBodySnapshot | None, str | None]:
+    """Attach a valid leaked-Space snapshot to the next 3D Text commit."""
+    snapshot, normalized = preview_confirm_space_leak_snapshot(hwnd, target, text)
+    if snapshot is not None:
+        clear_confirm_space_leak()
+        return snapshot, normalized
+    if _confirm_space_leak_snapshot_is_active(hwnd, target):
+        clear_confirm_space_leak()
+    return None, text
+
+
+def finish_confirm_space_leak_snapshot(hwnd: object, target: object) -> None:
+    """Commit the preview decision once the deferred insert is safely queued."""
+    if _confirm_space_leak_snapshot_is_active(hwnd, target):
+        clear_confirm_space_leak()

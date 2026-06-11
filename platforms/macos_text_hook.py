@@ -56,6 +56,45 @@ class MacOSTextInputHookMixin:
             return record
         return None
 
+    def _install_method_patch(
+        self,
+        records: dict[int, dict[str, object]],
+        cls: int,
+        method: int,
+        replacement: int,
+        imp_type: object,
+    ) -> bool:
+        """Replace one Objective-C IMP only after its restore record is ready."""
+        old_imp = _ptr_value(self.objc.method_getImplementation(method))
+        if not old_imp:
+            return False
+
+        original_imp = old_imp
+        original_callable = imp_type(original_imp)
+        replaced = False
+        try:
+            previous = _ptr_value(
+                self.objc.method_setImplementation(method, replacement)
+            )
+            replaced = True
+            original_imp = previous or old_imp
+            if original_imp != old_imp:
+                original_callable = imp_type(original_imp)
+        except (OSError, TypeError, ValueError):
+            if replaced:
+                try:
+                    self.objc.method_setImplementation(method, original_imp)
+                except (OSError, TypeError, ValueError):
+                    pass
+            raise
+
+        records[cls] = {
+            "method": method,
+            "old_imp": original_imp,
+            "callable": original_callable,
+        }
+        return True
+
     def _call_original_insert_text(
         self,
         obj: int,
@@ -167,39 +206,31 @@ class MacOSTextInputHookMixin:
                 )
                 if not method:
                     continue
-                old_imp = _ptr_value(self.objc.method_getImplementation(method))
-                if not old_imp:
+                if not self._install_method_patch(
+                    self._insert_text_records,
+                    cls,
+                    method,
+                    callback_ptr,
+                    self._insert_text_imp_type,
+                ):
                     continue
-                previous = _ptr_value(
-                    self.objc.method_setImplementation(method, callback_ptr)
-                )
-                original_imp = previous or old_imp
-                self._insert_text_records[cls] = {
-                    "method": method,
-                    "old_imp": original_imp,
-                    "callable": self._insert_text_imp_type(original_imp),
-                }
-
-                method_ic = _ptr_value(
-                    self.objc.class_getInstanceMethod(cls, self.objc.input_context)
-                )
-                if method_ic:
-                    old_imp_ic = _ptr_value(self.objc.method_getImplementation(method_ic))
-                    if old_imp_ic:
-                        previous_ic = _ptr_value(
-                            self.objc.method_setImplementation(
-                                method_ic,
-                                ic_callback_ptr,
-                            )
-                        )
-                        original_imp_ic = previous_ic or old_imp_ic
-                        self._input_context_records[cls] = {
-                            "method": method_ic,
-                            "old_imp": original_imp_ic,
-                            "callable": self._input_context_imp_type(original_imp_ic),
-                        }
             except (OSError, TypeError, ValueError):
                 continue
+
+            method_ic = _ptr_value(
+                self.objc.class_getInstanceMethod(cls, self.objc.input_context)
+            )
+            if method_ic:
+                try:
+                    self._install_method_patch(
+                        self._input_context_records,
+                        cls,
+                        method_ic,
+                        ic_callback_ptr,
+                        self._input_context_imp_type,
+                    )
+                except (OSError, TypeError, ValueError):
+                    pass
             installed += 1
 
         if installed == 0:
@@ -217,7 +248,7 @@ class MacOSTextInputHookMixin:
             try:
                 self.objc.method_setImplementation(method, old_imp)
                 restored += 1
-            except (OSError, ValueError):
+            except (OSError, TypeError, ValueError):
                 pass
         self._insert_text_records.clear()
         self._insert_text_callback = None
@@ -230,7 +261,7 @@ class MacOSTextInputHookMixin:
                 continue
             try:
                 self.objc.method_setImplementation(method, old_imp)
-            except (OSError, ValueError):
+            except (OSError, TypeError, ValueError):
                 pass
         self._input_context_records.clear()
         self._input_context_callback = None

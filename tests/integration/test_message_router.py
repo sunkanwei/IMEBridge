@@ -81,8 +81,9 @@ class MessageRouterTests(unittest.TestCase):
         target = font_target(778)
         queued: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-        def queue(*args: object, **kwargs: object) -> None:
+        def queue(*args: object, **kwargs: object) -> bool:
             queued.append((args, kwargs))
+            return True
 
         self.runtime.state.insert_on_commit = True
         is_target = lambda item: item is target

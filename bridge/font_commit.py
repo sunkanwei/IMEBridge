@@ -165,17 +165,21 @@ def handle_font_char_commit(
     if is_recent_font_result_char(target, char):
         return 0
 
-    font_space_leak, char = font_restore.consume_confirm_space_leak_snapshot(
+    font_space_leak, char = font_restore.preview_confirm_space_leak_snapshot(
         hwnd,
         target,
         char,
     )
-    target_state.set_active_target(target)
-    insert_queue.queue(
+    queued = insert_queue.queue(
         char,
         target,
         hwnd=hwnd,
         source=insert_queue.SOURCE_FONT_CHAR,
         font_space_leak=font_space_leak,
     )
+    if not queued:
+        return None
+
+    font_restore.finish_confirm_space_leak_snapshot(hwnd, target)
+    target_state.set_active_target(target)
     return 0

@@ -8,6 +8,8 @@ class FontCommitTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_runtime()
         self.font_commit = import_bridge_module("bridge.font_commit")
+        self.models = import_bridge_module("core.models")
+        self.runtime = import_bridge_module("core.runtime")
         self.insert_queue = import_bridge_module("targets.queue")
 
     def test_decode_direct_cjk_and_reject_ascii(self) -> None:
@@ -29,8 +31,9 @@ class FontCommitTests(unittest.TestCase):
         target = font_target(332)
         queued: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-        def queue(*args: object, **kwargs: object) -> None:
+        def queue(*args: object, **kwargs: object) -> bool:
             queued.append((args, kwargs))
+            return True
 
         win = FakeWin()
         with patched(self.font_commit, "font_input_target_from_state", lambda: target):
@@ -47,6 +50,35 @@ class FontCommitTests(unittest.TestCase):
         self.assertIs(queued[0][0][1], target)
         self.assertEqual(queued[0][1]["source"], self.insert_queue.SOURCE_FONT_CHAR)
         self.assertNotIn("suppress_space", queued[0][1])
+
+    def test_queue_failure_returns_font_char_to_original_window_proc(self) -> None:
+        target = font_target(333, body="abc ")
+        snapshot = self.models.FontBodySnapshot(
+            self.font_commit.font_result_target_key(target),
+            "abc",
+        )
+        state = self.runtime.state.font_confirm_space_leak
+        state.hwnd = 77
+        state.snapshot = snapshot
+        state.until = float("inf")
+
+        win = FakeWin()
+        with patched(self.font_commit, "font_input_target_from_state", lambda: target):
+            with patched(
+                self.font_commit.insert_queue,
+                "queue",
+                lambda *_args, **_kwargs: False,
+            ):
+                result = self.font_commit.handle_font_char_commit(
+                    win,
+                    77,
+                    win.WM_IME_CHAR,
+                    ord("中"),
+                )
+
+        self.assertIsNone(result)
+        self.assertIs(state.snapshot, snapshot)
+        self.assertIsNone(self.runtime.state.active_target)
 
 
 if __name__ == "__main__":

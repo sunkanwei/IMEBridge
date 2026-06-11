@@ -212,14 +212,14 @@ def handle_direct_ascii_char(
     if target is None:
         return 0
 
-    insert_queue.queue(
+    queued = insert_queue.queue(
         chr(value),
         target,
         hwnd=hwnd,
         source=insert_queue.SOURCE_DIRECT_ASCII,
     )
     consume_direct_ascii_char(hwnd)
-    return 0
+    return 0 if queued else None
 
 
 def handle_direct_ascii_guard(
