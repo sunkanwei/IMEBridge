@@ -8,14 +8,14 @@ from . import models
 
 
 @dataclass
-class SpaceSuppressionState:
-    """A narrow guard for confirmation spaces that escape some IMEs."""
+class ImeConfirmSpaceState:
+    """The physical Space key sequence currently owned by IME confirmation."""
 
     hwnd: int = 0
     until: float = 0.0
 
     def clear(self) -> None:
-        """Drop any pending space suppression window."""
+        """Drop any pending IME confirmation Space sequence."""
         self.hwnd = 0
         self.until = 0.0
 
@@ -186,8 +186,8 @@ class RuntimeState:
     active_target: object = None
     composition_target: object = None
 
-    space_suppression: SpaceSuppressionState = field(
-        default_factory=SpaceSuppressionState
+    ime_confirm_space: ImeConfirmSpaceState = field(
+        default_factory=ImeConfirmSpaceState
     )
     tab_indent: TabIndentState = field(default_factory=TabIndentState)
     text_area_activation: TextAreaActivationState = field(
@@ -208,7 +208,7 @@ class RuntimeState:
         self.last_preposition_at = 0.0
         self.active_target = None
         self.composition_target = None
-        self.space_suppression.clear()
+        self.ime_confirm_space.clear()
         self.tab_indent.clear()
         self.text_area_activation.clear()
         self.font_result_dedup.clear()

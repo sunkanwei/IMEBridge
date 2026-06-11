@@ -52,11 +52,6 @@ def flush_one(item: models.PendingInsert) -> None:
 
         font_commit.mark_recent_font_result(item.target, item.text)
 
-    if item.suppress_space and item.hwnd:
-        from ..bridge import ime_guards
-
-        ime_guards.mark_space_suppression(item.hwnd)
-
 
 def queue(
     text: str,
@@ -65,7 +60,6 @@ def queue(
     *,
     hwnd: object = None,
     source: str = "",
-    suppress_space: bool = False,
 ) -> None:
     """Defer an IME commit until Blender operators are safe to call."""
     if not text:
@@ -80,7 +74,6 @@ def queue(
             text_session,
             hwnd=hwnd,
             source=source,
-            suppress_space=suppress_space,
         )
     )
     if not runtime.state.insert_timer_registered:

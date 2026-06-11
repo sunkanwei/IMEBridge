@@ -11,51 +11,126 @@ from ..targets import text as text_target
 from ..platforms import native as platform_api
 
 
-SPACE_SUPPRESSION_SECONDS = 0.75
+SPACE_CONFIRM_STALE_SECONDS = 2.0
+SPACE_EVENT_DOWN = "down"
+SPACE_EVENT_UP = "up"
+SPACE_EVENT_CHAR = "char"
 
 
 CompositionReader = Callable[[object, object, int], str | None]
 
 
-def clear_space_suppression() -> None:
-    """Forget any pending confirmation-space swallow."""
-    runtime.state.space_suppression.clear()
+def clear_ime_confirm_space() -> None:
+    """Forget any pending IME-owned Space key sequence."""
+    runtime.state.ime_confirm_space.clear()
 
 
-def mark_space_suppression(hwnd: object) -> bool:
-    """Give the commit path a short grace period to eat Blender's stray space."""
-    runtime.state.space_suppression.hwnd = platform_api.ptr_value(hwnd)
-    runtime.state.space_suppression.until = time.monotonic() + SPACE_SUPPRESSION_SECONDS
-    return True
+def refresh_ime_confirm_space(hwnd: object) -> None:
+    """Keep the current confirmation Space sequence alive briefly."""
+    state = runtime.state.ime_confirm_space
+    state.hwnd = platform_api.ptr_value(hwnd)
+    state.until = time.monotonic() + SPACE_CONFIRM_STALE_SECONDS
 
 
-def handle_space_suppression(
+def ime_confirm_space_is_active(hwnd: object) -> bool:
+    """Return whether this window still owns a confirmation Space sequence."""
+    state = runtime.state.ime_confirm_space
+    if not state.hwnd:
+        return False
+    if time.monotonic() > state.until:
+        clear_ime_confirm_space()
+        return False
+    return state.hwnd == platform_api.ptr_value(hwnd)
+
+
+def space_event_kind(
+    win: object,
+    msg_value: int,
+    wparam: object,
+    lparam: object,
+) -> str:
+    """Classify Space messages without treating time as the source of truth."""
+    if msg_value == win.WM_INPUT:
+        raw = platform_api.read_raw_keyboard(win, lparam)
+        if raw is None or raw["vkey"] != win.VK_SPACE:
+            return ""
+        return SPACE_EVENT_DOWN if raw["key_down"] else SPACE_EVENT_UP
+
+    if not is_keyboard_message(win, msg_value):
+        return ""
+    if platform_api.ptr_value(wparam) != win.VK_SPACE:
+        return ""
+    if msg_value in {win.WM_KEYUP, win.WM_IME_KEYUP}:
+        return SPACE_EVENT_UP
+    if msg_value == win.WM_CHAR:
+        return SPACE_EVENT_CHAR
+    return SPACE_EVENT_DOWN
+
+
+def feed_ime_keyboard_message(
     win: object,
     hwnd: object,
     msg_value: int,
-    w_value: int,
+    wparam: object,
+    lparam: object,
+) -> None:
+    """Forward translated Space messages to IMM while raw input stays local."""
+    if msg_value != win.WM_INPUT:
+        win.imm32.ImmIsUIMessageW(hwnd, msg_value, wparam, lparam)
+
+
+def handle_active_ime_confirm_space(
+    win: object,
+    hwnd: object,
+    msg_value: int,
+    wparam: object,
+    lparam: object,
+    event_kind: str,
 ) -> int | None:
-    """Catch the space that some native IMEs send after commits."""
-    state = runtime.state.space_suppression
-    if not state.hwnd:
-        return None
-    if time.monotonic() > state.until:
-        clear_space_suppression()
-        return None
-    if state.hwnd != platform_api.ptr_value(hwnd):
+    """Swallow only messages that belong to the remembered physical Space key."""
+    feed_ime_keyboard_message(win, hwnd, msg_value, wparam, lparam)
+    if event_kind == SPACE_EVENT_UP:
+        clear_ime_confirm_space()
+    else:
+        refresh_ime_confirm_space(hwnd)
+    return 0
+
+
+def handle_ime_confirm_space_guard(
+    win: object,
+    hwnd: object,
+    msg_value: int,
+    wparam: object,
+    lparam: object,
+    comp_string_reader: CompositionReader,
+) -> int | None:
+    """Consume the physical Space key used to confirm an active IME composition."""
+    event_kind = space_event_kind(win, msg_value, wparam, lparam)
+    if not event_kind:
         return None
 
-    if msg_value == win.WM_KEYDOWN and w_value == win.VK_SPACE:
+    if ime_confirm_space_is_active(hwnd):
+        result = handle_active_ime_confirm_space(
+            win,
+            hwnd,
+            msg_value,
+            wparam,
+            lparam,
+            event_kind,
+        )
+        if result is not None:
+            return result
+
+    if event_kind == SPACE_EVENT_UP:
         return None
 
-    if msg_value == win.WM_CHAR and w_value == win.VK_SPACE:
-        return 0
+    target = ime_edit_guard_target(win, hwnd, comp_string_reader)
+    if target is None:
+        return None
 
-    if msg_value == win.WM_KEYUP and w_value == win.VK_SPACE:
-        clear_space_suppression()
-        return 0
-
-    return None
+    refresh_ime_confirm_space(hwnd)
+    feed_ime_keyboard_message(win, hwnd, msg_value, wparam, lparam)
+    return 0
 
 
 def is_keyboard_message(win: object, msg_value: int) -> bool:
@@ -86,8 +161,8 @@ def is_preedit_vkey(value: int) -> bool:
 
 
 def is_preedit_char(value: int) -> bool:
-    """Printable ASCII chars are the usual leaked pinyin payload."""
-    return 0x20 <= value <= 0x7E
+    """Printable non-space ASCII chars are the usual leaked pinyin payload."""
+    return 0x21 <= value <= 0x7E
 
 
 def ime_can_accept_preedit_text(win: object, hwnd: object) -> bool:
@@ -148,29 +223,6 @@ def ime_edit_guard_target(
     return target
 
 
-def preempt_space_suppression(
-    win: object,
-    hwnd: object,
-    msg_value: int,
-    wparam: object,
-    lparam: object,
-    comp_string_reader: CompositionReader,
-) -> None:
-    """Preemptively suppress trailing space chars when Space is pressed during IME composition."""
-    is_space = False
-    if msg_value == win.WM_INPUT:
-        raw = platform_api.read_raw_keyboard(win, lparam)
-        is_space = raw is not None and raw["vkey"] == win.VK_SPACE
-    elif is_keyboard_message(win, msg_value):
-        is_space = platform_api.ptr_value(wparam) == win.VK_SPACE
-
-    if not is_space:
-        return
-    if ime_edit_guard_target(win, hwnd, comp_string_reader) is not None:
-        runtime.state.space_suppression.hwnd = platform_api.ptr_value(hwnd)
-        runtime.state.space_suppression.until = time.monotonic() + SPACE_SUPPRESSION_SECONDS
-
-
 def protect_text_target_from_ime_edit(target: object) -> None:
     """Snapshot the Text Editor before swallowing an edit key."""
     if models.is_text_editor_target(target):
@@ -201,38 +253,6 @@ def handle_preedit_text_guard(
         return None
 
     protect_text_target_from_ime_edit(target)
-    win.imm32.ImmIsUIMessageW(hwnd, msg_value, wparam, lparam)
-    return 0
-
-
-def handle_font_space_confirm_guard(
-    win: object,
-    hwnd: object,
-    msg_value: int,
-    wparam: object,
-    lparam: object,
-    comp_string_reader: CompositionReader,
-) -> int | None:
-    """For 3D Text, space belongs to the IME until composition is finished."""
-    if msg_value == win.WM_INPUT:
-        raw = platform_api.read_raw_keyboard(win, lparam)
-        if raw is None or raw["vkey"] != win.VK_SPACE:
-            return None
-        target = ime_edit_guard_target(win, hwnd, comp_string_reader)
-        if models.is_font_edit_target(target):
-            return 0
-        return None
-
-    if not is_keyboard_message(win, msg_value):
-        return None
-
-    if platform_api.ptr_value(wparam) != win.VK_SPACE:
-        return None
-
-    target = ime_edit_guard_target(win, hwnd, comp_string_reader)
-    if not models.is_font_edit_target(target):
-        return None
-
     win.imm32.ImmIsUIMessageW(hwnd, msg_value, wparam, lparam)
     return 0
 
@@ -304,7 +324,7 @@ def handle_message_guards(
     comp_string_reader: CompositionReader,
 ) -> int | None:
     """Run the keyboard shields before normal IME dispatch."""
-    preempt_space_suppression(
+    space_result = handle_ime_confirm_space_guard(
         win,
         hwnd,
         msg_value,
@@ -312,17 +332,8 @@ def handle_message_guards(
         lparam,
         comp_string_reader,
     )
-
-    font_space_result = handle_font_space_confirm_guard(
-        win,
-        hwnd,
-        msg_value,
-        wparam,
-        lparam,
-        comp_string_reader,
-    )
-    if font_space_result is not None:
-        return font_space_result
+    if space_result is not None:
+        return space_result
 
     if msg_value == win.WM_INPUT:
         raw_result = handle_raw_input_guard(win, hwnd, lparam, comp_string_reader)
@@ -350,9 +361,4 @@ def handle_message_guards(
     if preedit_result is not None:
         return preedit_result
 
-    return handle_space_suppression(
-        win,
-        hwnd,
-        msg_value,
-        platform_api.ptr_value(wparam),
-    )
+    return None

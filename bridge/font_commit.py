@@ -4,7 +4,6 @@ import time
 
 import bpy
 
-from . import ime_guards
 from ..core import models
 from ..core import runtime
 from ..targets import detect as targets
@@ -172,7 +171,5 @@ def handle_font_char_commit(
         target,
         hwnd=hwnd,
         source=insert_queue.SOURCE_FONT_CHAR,
-        suppress_space=True,
     )
-    ime_guards.mark_space_suppression(hwnd)
     return 0

@@ -2,7 +2,6 @@
 
 import ctypes
 
-from . import ime_guards
 from . import message_router
 from ..core import runtime
 from ..platforms import native as platform_api
@@ -169,5 +168,4 @@ def stop_hooks() -> int:
 
     runtime.clear_input_state()
     runtime.clear_pending_inserts()
-    ime_guards.clear_space_suppression()
     return stopped

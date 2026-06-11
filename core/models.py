@@ -93,7 +93,6 @@ class PendingInsert:
     text_session: object = None
     hwnd: object = None
     source: str = ""
-    suppress_space: bool = False
 
 
 @dataclass(frozen=True)

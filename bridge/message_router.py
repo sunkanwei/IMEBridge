@@ -75,7 +75,7 @@ def clear_bridge_target_state() -> None:
     target_state.clear_active_target()
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
-    ime_guards.clear_space_suppression()
+    ime_guards.clear_ime_confirm_space()
     text_target.cancel_tab_indent()
     runtime.state.font_result_dedup.clear()
 
@@ -644,9 +644,7 @@ def queue_ime_result(hwnd: object, result: str | None) -> None:
         text_session,
         hwnd=hwnd,
         source=insert_queue.SOURCE_IME_RESULT,
-        suppress_space=True,
     )
-    ime_guards.mark_space_suppression(hwnd)
 
 
 def handle_ime_composition(win: object, hwnd: object, l_value: int) -> None:
