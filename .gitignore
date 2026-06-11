@@ -9,6 +9,8 @@ __pycache__/
 *.zip
 dist/
 build/
+build_extension.bat
+build_extension.command
 
 # Local editor and OS files
 .vscode/
