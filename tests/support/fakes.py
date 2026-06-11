@@ -71,10 +71,17 @@ class PointerObject:
 
 
 class FakeObj(PointerObject):
-    def __init__(self, pointer: int = 2000, *, obj_type: str = "FONT") -> None:
+    def __init__(
+        self,
+        pointer: int = 2000,
+        *,
+        obj_type: str = "FONT",
+        body: str = "",
+    ) -> None:
         super().__init__(pointer)
         self.type = obj_type
         self.mode = "EDIT"
+        self.data = SimpleNamespace(body=body)
 
 
 def text_editor_target(text: FakeText | None = None):
@@ -89,7 +96,7 @@ def text_editor_target(text: FakeText | None = None):
     return models.TextEditorTarget(window, screen, area, region, space, text_data)
 
 
-def font_target(pointer: int = 3000):
+def font_target(pointer: int = 3000, *, body: str = ""):
     models = import_bridge_module("core.models")
     window = SimpleNamespace(screen=None)
     screen = SimpleNamespace()
@@ -97,7 +104,7 @@ def font_target(pointer: int = 3000):
     area = SimpleNamespace(type="VIEW_3D", regions=[])
     region = SimpleNamespace(type="WINDOW", x=0, y=0, width=640, height=480)
     space = SimpleNamespace()
-    obj = FakeObj(pointer)
+    obj = FakeObj(pointer, body=body)
     return models.FontEditTarget(window, screen, area, region, space, obj)
 
 

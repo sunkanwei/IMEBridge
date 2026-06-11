@@ -10,6 +10,7 @@ class MessageRouterTests(unittest.TestCase):
         self.router = import_bridge_module("bridge.message_router")
         self.runtime = import_bridge_module("core.runtime")
         self.queue = import_bridge_module("targets.queue")
+        self.font_restore = import_bridge_module("targets.font_restore")
         self.text = import_bridge_module("targets.text")
         self.win = FakeWin()
 
@@ -23,6 +24,8 @@ class MessageRouterTests(unittest.TestCase):
         self.runtime.state.text_restore_timer_registered = True
         self.runtime.state.text_confirm_space_leak.snapshot = object()
         self.runtime.state.text_hidden_ime_activity.text = object()
+        self.runtime.state.font_confirm_space_leak.snapshot = object()
+        self.runtime.state.font_hidden_ime_activity.target_key = 9
         text_data = FakeText("", line=0, column=0)
         self.runtime.state.text_ime_session.begin(
             text=text_data,
@@ -48,6 +51,8 @@ class MessageRouterTests(unittest.TestCase):
         self.assertIsNone(self.runtime.state.text_ime_session.recent)
         self.assertIsNone(self.runtime.state.text_confirm_space_leak.snapshot)
         self.assertIsNone(self.runtime.state.text_hidden_ime_activity.text)
+        self.assertIsNone(self.runtime.state.font_confirm_space_leak.snapshot)
+        self.assertEqual(self.runtime.state.font_hidden_ime_activity.target_key, 0)
         self.assertEqual(self.runtime.state.tab_indent.count, 0)
 
     def test_queue_ime_result_uses_current_queue_signature(self) -> None:
@@ -152,6 +157,91 @@ class MessageRouterTests(unittest.TestCase):
 
         self.assertEqual(text_data.as_string(), "中")
         self.assertTrue(self.runtime.state.text_ime_session.current.committed)
+
+    def test_queue_ime_result_does_not_reuse_committed_current_session(self) -> None:
+        text_data = FakeText("", line=0, column=0)
+        target = text_editor_target(text_data)
+        self.runtime.state.insert_on_commit = True
+        self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body="",
+            line=0,
+            column=0,
+            select_line=0,
+            select_column=0,
+            replace_start=0,
+            replace_end=0,
+        )
+
+        def insert(
+            value: str,
+            item: object,
+            text_session: object = None,
+        ) -> bool:
+            if text_session is not None:
+                body, line, column = self.text.text_session_commit_result(
+                    text_session,
+                    value,
+                )
+                text_data.write(body)
+                text_data.select_set(line, column, line, column)
+                return True
+            return self.text.insert_text_body_at_cursor(text_data, value)
+
+        with patched(self.router, "bridge_ime_allowed", lambda: True):
+            with patched(self.router, "resolve_input_target_from_state", lambda: target):
+                with patched(
+                    self.router.targets,
+                    "is_usable_input_target",
+                    lambda item: item is target,
+                ):
+                    self.router.queue_ime_result(44, "你")
+                    self.router.queue_ime_result(44, "好")
+        with patched(self.queue.text_target, "insert", insert):
+            self.queue.flush()
+
+        self.assertEqual(text_data.as_string(), "你好")
+
+    def test_queue_ime_result_repairs_font_confirm_space_leak(self) -> None:
+        target = font_target(780, body="")
+        self.runtime.state.insert_on_commit = True
+        self.font_restore.remember_hidden_ime_activity(44, target)
+        self.font_restore.remember_possible_confirm_space_leak(44, target)
+        target.obj.data.body = " "
+
+        class DeletePrevious:
+            def poll(self) -> bool:
+                return True
+
+            def __call__(self, *args: object, **kwargs: object) -> set[str]:
+                target.obj.data.body = target.obj.data.body[:-1]
+                return {"FINISHED"}
+
+        class TextInsert:
+            def poll(self) -> bool:
+                return True
+
+            def __call__(self, *args: object, **kwargs: object) -> set[str]:
+                target.obj.data.body += str(kwargs["text"])
+                return {"FINISHED"}
+
+        with patched(self.router, "bridge_ime_allowed", lambda: True):
+            with patched(self.router, "resolve_input_target_from_state", lambda: target):
+                with patched(
+                    self.router.targets,
+                    "is_usable_input_target",
+                    lambda item: item is target,
+                ):
+                    self.router.queue_ime_result(44, "中")
+        with patched(self.queue.font_target.bpy.ops.font, "delete", DeletePrevious()):
+            with patched(
+                self.queue.font_target.bpy.ops.font,
+                "text_insert",
+                TextInsert(),
+            ):
+                self.queue.flush()
+
+        self.assertEqual(target.obj.data.body, "中")
 
     def test_unicode_text_tab_schedules_indent_only_for_plain_raw_tab(self) -> None:
         target = text_editor_target()

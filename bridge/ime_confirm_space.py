@@ -4,8 +4,10 @@ import time
 
 from . import ime_guard_common as common
 from . import ime_switch
+from ..core import models
 from ..core import runtime
 from ..platforms import native as platform_api
+from ..targets import font_restore
 from ..targets import text as text_target
 
 
@@ -24,6 +26,7 @@ def clear_ime_confirm_space() -> None:
 def clear_hidden_text_ime_activity() -> None:
     """Forget IME key activity that has not yet become a composition."""
     runtime.state.text_hidden_ime_activity.clear()
+    runtime.state.font_hidden_ime_activity.clear()
 
 
 def refresh_ime_confirm_space(hwnd: object) -> None:
@@ -143,10 +146,13 @@ def remember_hidden_text_ime_activity(
         return
 
     target = common.active_target_for_ime_guard()
+    if models.is_font_edit_target(target):
+        font_restore.remember_hidden_ime_activity(hwnd, target)
+        return
+
     target_text = text_target.text_data_from_target(target)
     if target_text is None:
         return
-
     state = runtime.state.text_hidden_ime_activity
     state.hwnd = platform_api.ptr_value(hwnd)
     state.text = target_text
@@ -187,19 +193,32 @@ def text_space_may_confirm_ime(
     return session is not None or hidden
 
 
-def remember_possible_text_confirm_space(
+def font_space_may_confirm_ime(
+    hwnd: object,
+    target: object,
+) -> bool:
+    """Return whether a Font Space may still belong to hidden IME activity."""
+    return (
+        models.is_font_edit_target(target)
+        and font_restore.hidden_ime_activity_is_active(hwnd, target)
+    )
+
+
+def remember_possible_confirm_space_leak(
     win: object,
     hwnd: object,
     event_kind: str,
 ) -> None:
-    """Snapshot Text state before passing through a maybe-IME Space."""
+    """Snapshot editable target state before a maybe-IME Space passes through."""
     if event_kind not in {SPACE_EVENT_DOWN, SPACE_EVENT_CHAR}:
         return
     target = common.active_target_for_ime_guard()
-    if not text_space_may_confirm_ime(win, hwnd, target):
-        return
-    text_target.remember_possible_confirm_space_leak(hwnd, target)
-    clear_hidden_text_ime_activity()
+    if text_space_may_confirm_ime(win, hwnd, target):
+        text_target.remember_possible_confirm_space_leak(hwnd, target)
+        clear_hidden_text_ime_activity()
+    elif font_space_may_confirm_ime(hwnd, target):
+        font_restore.remember_possible_confirm_space_leak(hwnd, target)
+        clear_hidden_text_ime_activity()
 
 
 def handle_ime_confirm_space_guard(
@@ -237,7 +256,7 @@ def handle_ime_confirm_space_guard(
 
     target = common.ime_edit_guard_target(win, hwnd, comp_string_reader)
     if target is None:
-        remember_possible_text_confirm_space(win, hwnd, event_kind)
+        remember_possible_confirm_space_leak(win, hwnd, event_kind)
         return None
 
     begin_ime_confirm_space(hwnd, event_kind)

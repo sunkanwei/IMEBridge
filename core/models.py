@@ -85,6 +85,14 @@ class TextRestoreSnapshot:
 
 
 @dataclass(frozen=True)
+class FontBodySnapshot:
+    """3D Text body state kept briefly while a confirm Space may leak."""
+
+    target_key: int
+    body: str
+
+
+@dataclass(frozen=True)
 class PendingInsert:
     """Committed IME text waiting for Blender's main-thread timer."""
 
@@ -93,6 +101,7 @@ class PendingInsert:
     text_session: object = None
     hwnd: object = None
     source: str = ""
+    font_space_leak: object = None
 
 
 @dataclass(frozen=True)

@@ -121,6 +121,67 @@ class TextTransactionTests(unittest.TestCase):
         self.assertIsNotNone(session)
         self.assertEqual(self.text.text_session_commit_result(session, text)[0], "中文")
 
+    def test_session_commit_preserves_real_edit_made_before_flush(self) -> None:
+        text_data = FakeText("a", line=0, column=1)
+        target = text_editor_target(text_data)
+        session = self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body="a",
+            line=0,
+            column=1,
+            select_line=0,
+            select_column=1,
+            replace_start=1,
+            replace_end=1,
+        )
+        text_data.write("ax")
+        text_data.select_set(0, 2, 0, 2)
+
+        inserted = self.text.insert_text_session_result(
+            target,
+            "中",
+            session,
+            use_operator=False,
+        )
+
+        self.assertTrue(inserted)
+        self.assertEqual(text_data.as_string(), "ax中")
+
+    def test_session_commit_still_restores_ime_edit_key_leak_guard(self) -> None:
+        models = import_bridge_module("core.models")
+        text_data = FakeText("ab", line=0, column=2)
+        target = text_editor_target(text_data)
+        session = self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body="abc",
+            line=0,
+            column=3,
+            select_line=0,
+            select_column=3,
+            replace_start=3,
+            replace_end=3,
+        )
+        self.runtime.state.text_restore_guard = models.TextRestoreSnapshot(
+            text=text_data,
+            body="abc",
+            line=0,
+            column=3,
+            select_line=0,
+            select_column=3,
+            session=session,
+            commit_generation=self.runtime.state.text_ime_session.commit_generation,
+        )
+
+        inserted = self.text.insert_text_session_result(
+            target,
+            "中",
+            session,
+            use_operator=False,
+        )
+
+        self.assertTrue(inserted)
+        self.assertEqual(text_data.as_string(), "abc中")
+
 
 if __name__ == "__main__":
     unittest.main()

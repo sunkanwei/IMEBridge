@@ -12,6 +12,7 @@ from ..core import models
 from ..core import runtime
 from ..core import safe_ops
 from ..targets import detect as targets
+from ..targets import font_restore
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
 from ..targets import text as text_target
@@ -59,6 +60,8 @@ def clear_bridge_target_state() -> None:
     text_target.cancel_tab_indent()
     text_target.clear_confirm_space_leak()
     runtime.state.font_result_dedup.clear()
+    font_restore.clear_confirm_space_leak()
+    runtime.state.font_hidden_ime_activity.clear()
 
 
 def end_ime() -> bool:
@@ -197,13 +200,15 @@ def handle_committed_text(text: str) -> bool:
             return False
         text_session = runtime.state.text_ime_session.active_for_text(target_text)
 
-    insert_queue.queue(
+    queued = insert_queue.queue(
         text,
         target,
         text_session,
         hwnd=hwnd,
         source=insert_queue.SOURCE_IME_RESULT,
     )
+    if not queued:
+        return False
     update_candidate(target, hwnd, force=True)
     return True
 

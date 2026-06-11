@@ -115,6 +115,7 @@ def install_fake_bpy() -> ModuleType:
         ),
         font=SimpleNamespace(
             text_insert=FakeOperator(),
+            delete=FakeOperator(),
         ),
     )
     bpy.utils = SimpleNamespace(

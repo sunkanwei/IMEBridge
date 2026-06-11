@@ -3,6 +3,7 @@
 import bpy
 
 from ..core import models
+from ..core import runtime
 from ..core import safe_ops
 from . import detect as targets
 from . import text_positions as positions
@@ -40,6 +41,37 @@ def restore_composition_baseline(
     )
 
 
+def _text_session_body_after_single_space(
+    text_session: models.TextImeSession,
+) -> str:
+    """Return the body shape left by a leaked confirmation Space."""
+    start, end = text_session_replacement_offsets(text_session)
+    return text_session.body[:start] + " " + text_session.body[end:]
+
+
+def _restore_guard_matches_session(text_session: models.TextImeSession) -> bool:
+    """Return whether a dirty body is protected by the IME edit-key guard."""
+    guard = runtime.state.text_restore_guard
+    return (
+        isinstance(guard, models.TextRestoreSnapshot)
+        and guard.session is text_session
+        and guard.body == text_session.body
+        and guard.commit_generation == runtime.state.text_ime_session.commit_generation
+    )
+
+
+def _text_session_body_is_safe_to_restore(
+    text_session: models.TextImeSession,
+    current_body: str,
+) -> bool:
+    """Reject real edits that happened after the IME session was captured."""
+    if current_body == text_session.body:
+        return True
+    if current_body == _text_session_body_after_single_space(text_session):
+        return True
+    return _restore_guard_matches_session(text_session)
+
+
 def text_session_replacement_offsets(
     text_session: models.TextImeSession,
 ) -> tuple[int, int]:
@@ -72,12 +104,30 @@ def insert_text_session_result(
     text_data = text_state.session_text_data(target, text_session)
     if text_data is None:
         return False
+    current_body = safe_ops.maybe_get_text_body(text_data)
+    if current_body is None:
+        return False
 
     expected_body, cursor_line, cursor_column = text_session_commit_result(
         text_session,
         text,
     )
+    safe_to_restore = _text_session_body_is_safe_to_restore(
+        text_session,
+        current_body,
+    )
     text_restore.mark_composition_committed(text_session)
+
+    if not safe_to_restore:
+        if use_operator:
+            try:
+                if bpy.ops.text.insert.poll():
+                    bpy.ops.text.insert(text=text)
+                    if safe_ops.maybe_get_text_body(text_data) != current_body:
+                        return True
+            except (AttributeError, ReferenceError, RuntimeError):
+                pass
+        return text_state.insert_text_body_at_cursor(text_data, text)
 
     if use_operator and restore_composition_baseline(target, text_session):
         try:

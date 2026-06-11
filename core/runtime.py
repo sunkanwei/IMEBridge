@@ -191,7 +191,11 @@ class TextImeSessionState:
 
     def active_for_text(self, text_data: object) -> models.TextImeSession | None:
         """Return the active session only when it owns the Text datablock."""
-        if self.current is not None and self.current.owns_text(text_data):
+        if (
+            self.current is not None
+            and not self.current.committed
+            and self.current.owns_text(text_data)
+        ):
             return self.current
         if (
             self.recent_is_active()
@@ -231,6 +235,21 @@ class TextConfirmSpaceLeakState:
 
 
 @dataclass
+class FontConfirmSpaceLeakState:
+    """Snapshot before a Space that may be an IME confirmation key."""
+
+    hwnd: int = 0
+    snapshot: object = None
+    until: float = 0.0
+
+    def clear(self) -> None:
+        """Drop the suspected confirmation-space snapshot."""
+        self.hwnd = 0
+        self.snapshot = None
+        self.until = 0.0
+
+
+@dataclass
 class TextHiddenImeActivityState:
     """Recent IME key activity before Windows exposes composition state."""
 
@@ -242,6 +261,21 @@ class TextHiddenImeActivityState:
         """Forget hidden pre-composition activity."""
         self.hwnd = 0
         self.text = None
+        self.until = 0.0
+
+
+@dataclass
+class FontHiddenImeActivityState:
+    """Recent 3D Text IME key activity before Windows exposes composition."""
+
+    hwnd: int = 0
+    target_key: int = 0
+    until: float = 0.0
+
+    def clear(self) -> None:
+        """Forget hidden pre-composition activity."""
+        self.hwnd = 0
+        self.target_key = 0
         self.until = 0.0
 
 
@@ -291,6 +325,12 @@ class RuntimeState:
     font_result_dedup: FontResultDedupState = field(
         default_factory=FontResultDedupState
     )
+    font_confirm_space_leak: FontConfirmSpaceLeakState = field(
+        default_factory=FontConfirmSpaceLeakState
+    )
+    font_hidden_ime_activity: FontHiddenImeActivityState = field(
+        default_factory=FontHiddenImeActivityState
+    )
     input_scope: InputScopeState = field(default_factory=InputScopeState)
 
     def clear_input_state(self) -> None:
@@ -310,6 +350,8 @@ class RuntimeState:
         self.tab_indent.clear()
         self.text_area_activation.clear()
         self.font_result_dedup.clear()
+        self.font_confirm_space_leak.clear()
+        self.font_hidden_ime_activity.clear()
         self.input_scope.clear()
 
     def clear_pending_inserts(self) -> None:

@@ -13,6 +13,7 @@ from ..core import runtime
 from ..core import safe_ops
 from ..preferences import config
 from ..targets import detect as targets
+from ..targets import font_restore
 from ..targets import state as target_state
 from ..targets import text as text_target
 
@@ -67,6 +68,8 @@ def clear_bridge_target_state() -> None:
     text_target.clear_confirm_space_leak()
     text_target.cancel_tab_indent()
     runtime.state.font_result_dedup.clear()
+    font_restore.clear_confirm_space_leak()
+    runtime.state.font_hidden_ime_activity.clear()
 
 
 def apply_enabled_scope(scope: input_scope.InputScope) -> None:

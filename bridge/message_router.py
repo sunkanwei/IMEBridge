@@ -16,6 +16,7 @@ from ..core import models
 from ..core import runtime
 from ..preferences import config
 from ..targets import detect as targets
+from ..targets import font_restore
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
 from ..targets import text as text_target
@@ -375,18 +376,35 @@ def queue_ime_result(hwnd: object, result: str | None) -> None:
             result,
         )
         if leak_session is not None:
-            runtime.state.text_ime_session.mark_committed(text_session)
+            polluted_session = text_session
             text_session = leak_session
-        text_target.mark_composition_committed(text_session)
+        else:
+            polluted_session = None
     else:
         text_session = None
-    insert_queue.queue(
+        polluted_session = None
+    if models.is_font_edit_target(target):
+        font_space_leak, result = font_restore.consume_confirm_space_leak_snapshot(
+            hwnd,
+            target,
+            result,
+        )
+    else:
+        font_space_leak = None
+    queued = insert_queue.queue(
         result,
         target,
         text_session,
         hwnd=hwnd,
         source=insert_queue.SOURCE_IME_RESULT,
+        font_space_leak=font_space_leak,
     )
+    if not queued:
+        return
+    if polluted_session is not None:
+        runtime.state.text_ime_session.mark_committed(polluted_session)
+    if models.is_text_editor_target(target):
+        text_target.mark_composition_committed(text_session)
 
 
 def handle_ime_composition(win: object, hwnd: object, l_value: int) -> None:

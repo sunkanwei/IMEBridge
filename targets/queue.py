@@ -43,7 +43,11 @@ def flush_one(item: models.PendingInsert) -> None:
 
             if font_commit.is_recent_font_result_char(item.target, item.text):
                 return
-        inserted = font_target.insert(item.text, item.target)
+        inserted = font_target.insert(
+            item.text,
+            item.target,
+            item.font_space_leak,
+        )
 
     if not inserted:
         return
@@ -61,12 +65,21 @@ def queue(
     *,
     hwnd: object = None,
     source: str = "",
-) -> None:
+    font_space_leak: object = None,
+) -> bool:
     """Defer an IME commit until Blender operators are safe to call."""
     if not text:
-        return
+        return False
     if target is None:
-        return
+        return False
+
+    if not runtime.state.insert_timer_registered:
+        if not safe_ops.register_timer(
+            flush,
+            first_interval=PENDING_INSERT_TIMER_INTERVAL,
+        ):
+            return False
+        runtime.state.insert_timer_registered = True
 
     runtime.state.pending_inserts.append(
         models.PendingInsert(
@@ -75,14 +88,10 @@ def queue(
             text_session,
             hwnd=hwnd,
             source=source,
+            font_space_leak=font_space_leak,
         )
     )
-    if not runtime.state.insert_timer_registered:
-        if safe_ops.register_timer(
-            flush,
-            first_interval=PENDING_INSERT_TIMER_INTERVAL,
-        ):
-            runtime.state.insert_timer_registered = True
+    return True
 
 
 def cancel() -> None:

@@ -7,6 +7,7 @@ import bpy
 from ..core import models
 from ..core import runtime
 from ..targets import detect as targets
+from ..targets import font as font_target
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
 from ..platforms import native as platform_api
@@ -80,9 +81,7 @@ def decode_ime_char_value(value: object) -> str:
 
 def font_result_target_key(target: object) -> int:
     """Use the Blender object pointer for short-lived duplicate detection."""
-    if not models.is_font_edit_target(target) or target.obj is None:
-        return 0
-    return platform_api.ptr_value(target.obj.as_pointer())
+    return font_target.target_key(target)
 
 
 def mark_recent_font_result(target: object, text: str | None) -> None:

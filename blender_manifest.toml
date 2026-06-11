@@ -58,6 +58,7 @@ paths = [
   "targets/caret.py",
   "targets/detect.py",
   "targets/font.py",
+  "targets/font_restore.py",
   "targets/queue.py",
   "targets/state.py",
   "targets/text.py",
