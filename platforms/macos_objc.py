@@ -25,6 +25,7 @@ class ObjC:
     """Typed Objective-C runtime calls used by the Cocoa IME bridge."""
 
     def __init__(self) -> None:
+        """Load libobjc and cache the selectors the bridge uses."""
         self.lib = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
         self.objc_getClass = self.lib.objc_getClass
         self.objc_getClass.argtypes = [ctypes.c_char_p]

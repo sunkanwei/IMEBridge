@@ -25,6 +25,7 @@ def is_nexusui_surface_hit(hit: object) -> bool:
 
 
 def _nexusui_host_for_hit(hit: object) -> object | None:
+    """Find the NexusUI host that owns this Blender area, if one is alive."""
     area_key = _hit_area_key(hit)
     if area_key is None:
         return None
@@ -47,6 +48,7 @@ def _nexusui_host_for_hit(hit: object) -> object | None:
 
 
 def _iter_nexus_service_modules() -> Iterator[object]:
+    """Walk loaded NexusUI service modules without importing NexusUI directly."""
     for name, module in tuple(sys.modules.items()):
         if module is None:
             continue
@@ -55,6 +57,7 @@ def _iter_nexus_service_modules() -> Iterator[object]:
 
 
 def _host_contains_point(host: object, x: float, y: float) -> bool:
+    """Ask a host, or its layer stack, whether the click lands inside it."""
     hit_test = getattr(host, "hit_test", None)
     if callable(hit_test) and bool(hit_test(x, y)):
         return True
@@ -70,6 +73,7 @@ def _host_contains_point(host: object, x: float, y: float) -> bool:
 
 
 def _hit_area_key(hit: object) -> tuple[int, int] | None:
+    """Build the same window and area key NexusUI uses for its host map."""
     window = getattr(hit, "window", None)
     area = getattr(hit, "area", None)
     if window is None or area is None:
@@ -82,6 +86,7 @@ def _hit_area_key(hit: object) -> tuple[int, int] | None:
 
 
 def _hit_area_point(hit: object) -> tuple[float, float] | None:
+    """Pull the click point in the area's own coordinates."""
     area_x = getattr(hit, "area_x", None)
     area_y = getattr(hit, "area_y", None)
     if area_x is None or area_y is None:
@@ -90,6 +95,7 @@ def _hit_area_point(hit: object) -> tuple[float, float] | None:
 
 
 def _as_pointer(value: object) -> int | None:
+    """Convert Blender RNA objects to stable integer pointers when possible."""
     as_pointer = getattr(value, "as_pointer", None)
     if not callable(as_pointer):
         return None

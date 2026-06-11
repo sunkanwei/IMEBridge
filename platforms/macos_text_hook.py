@@ -6,6 +6,7 @@ from .macos_objc import NSRange
 
 
 def _ptr_value(value: object) -> int:
+    """Turn pointer-like ctypes values into a plain integer."""
     if value is None:
         return 0
     if isinstance(value, int):
@@ -19,6 +20,7 @@ class MacOSTextInputHookMixin:
     """Install and restore Cocoa text input methods patched by IMEBridge."""
 
     def _init_text_input_hook(self) -> None:
+        """Set up callback slots and restore records before any swizzling."""
         self._commit_handler = None
         self._insert_text_callback = None
         self._insert_text_records: dict[int, dict[str, object]] = {}
@@ -157,9 +159,11 @@ class MacOSTextInputHookMixin:
             chars: int,
             replacement_range: NSRange,
         ) -> None:
+            """Pass insertText calls through the hook handler."""
             self._handle_insert_text(obj, selector, chars, replacement_range)
 
         def input_context_callback(obj: int, selector: int) -> int:
+            """Return nil when IME input should stay quiet."""
             try:
                 allowed_cb = self._ime_allowed_callback
                 allowed = allowed_cb() if callable(allowed_cb) else True

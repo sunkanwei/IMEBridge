@@ -77,6 +77,7 @@ def confirm_space_leak_index(
 
 
 def _font_delete_previous_character() -> bool:
+    """Ask Blender to remove the leaked character when the Font editor is ready."""
     delete = getattr(bpy.ops.font, "delete", None)
     if delete is None:
         return False
@@ -95,6 +96,7 @@ def _replace_confirm_space_directly(
     snapshot: models.FontBodySnapshot,
     index: int,
 ) -> bool:
+    """Patch the saved body when the operator route cannot cleanly undo Space."""
     body = snapshot.body
     return set_body(target, body[:index] + text + body[index:])
 
@@ -104,6 +106,7 @@ def _repair_confirm_space_leak(
     target: object,
     snapshot: object,
 ) -> bool:
+    """Turn Blender's confirmation Space into the intended IME commit."""
     index = confirm_space_leak_index(target, snapshot)
     if index is None or not isinstance(snapshot, models.FontBodySnapshot):
         return False

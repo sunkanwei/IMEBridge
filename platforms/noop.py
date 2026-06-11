@@ -32,6 +32,7 @@ class DWord:
     """Tiny value holder matching the attribute shape of a DWORD."""
 
     def __init__(self, value: int = 0) -> None:
+        """Store the value the same way ctypes scalar objects do."""
         self.value = int(value)
 
 

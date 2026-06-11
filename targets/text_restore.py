@@ -185,6 +185,7 @@ def ime_result_needs_space_leak_guard(text: str | None) -> bool:
 
 
 def _space_leak_snapshot_is_active(hwnd: object, target: object) -> bool:
+    """Keep the Text leak snapshot only while it still belongs here."""
     state = runtime.state.text_confirm_space_leak
     snapshot = state.snapshot
     if not isinstance(snapshot, models.TextRestoreSnapshot):
@@ -203,6 +204,7 @@ def _space_leak_snapshot_is_active(hwnd: object, target: object) -> bool:
 
 
 def _body_after_single_space(snapshot: models.TextRestoreSnapshot) -> str | None:
+    """Rebuild the body Blender should have after the leaked Space."""
     offsets = positions.text_selection_offsets(
         snapshot.body,
         snapshot.line,
@@ -219,6 +221,7 @@ def _body_after_single_space(snapshot: models.TextRestoreSnapshot) -> str | None
 def _session_from_space_leak_snapshot(
     snapshot: models.TextRestoreSnapshot,
 ) -> models.TextImeSession | None:
+    """Treat the saved selection as a fresh Text IME replacement session."""
     offsets = positions.text_selection_offsets(
         snapshot.body,
         snapshot.line,

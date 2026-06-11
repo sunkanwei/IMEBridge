@@ -43,6 +43,7 @@ class DWord:
     """Tiny value holder matching the attribute shape of a DWORD."""
 
     def __init__(self, value: int = 0) -> None:
+        """Store the value the same way ctypes scalar objects do."""
         self.value = int(value)
 
 
@@ -71,6 +72,7 @@ class MacOSApi(MacOSTextInputHookMixin):
     """Small Cocoa facade used by the platform-neutral bridge code."""
 
     def __init__(self) -> None:
+        """Prepare Objective-C calls and text-input hooks for this session."""
         self.objc = ObjC()
         self._init_text_input_hook()
 

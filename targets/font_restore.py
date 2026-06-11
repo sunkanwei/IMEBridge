@@ -88,6 +88,7 @@ def _confirm_space_leak_snapshot_is_active(
     hwnd: object,
     target: object,
 ) -> bool:
+    """Keep the Font leak snapshot only while it still matches this target."""
     state = runtime.state.font_confirm_space_leak
     snapshot = state.snapshot
     if not isinstance(snapshot, models.FontBodySnapshot):
