@@ -73,6 +73,54 @@ class TextTransactionTests(unittest.TestCase):
         self.assertIs(self.runtime.state.tab_indent.target, target)
         self.assertTrue(self.runtime.state.tab_indent.timer_registered)
 
+    def test_confirm_space_leak_guard_requires_non_ascii_result(self) -> None:
+        target = text_editor_target(FakeText("", line=0, column=0))
+        self.text.remember_possible_confirm_space_leak(44, target)
+        target.text.write(" ")
+        target.text.select_set(0, 1, 0, 1)
+
+        session, text = self.text.consume_confirm_space_leak_session(
+            44,
+            target,
+            "a",
+        )
+
+        self.assertIsNone(session)
+        self.assertEqual(text, "a")
+        self.assertIsNone(self.runtime.state.text_confirm_space_leak.snapshot)
+
+    def test_confirm_space_leak_guard_builds_replacement_session(self) -> None:
+        target = text_editor_target(FakeText("", line=0, column=0))
+        self.text.remember_possible_confirm_space_leak(44, target)
+        target.text.write(" ")
+        target.text.select_set(0, 1, 0, 1)
+
+        session, text = self.text.consume_confirm_space_leak_session(
+            44,
+            target,
+            " 中文",
+        )
+
+        self.assertIsNotNone(session)
+        self.assertEqual(text, "中文")
+        self.assertEqual(self.text.text_session_commit_result(session, text)[0], "中文")
+
+    def test_confirm_space_leak_guard_keeps_first_snapshot(self) -> None:
+        target = text_editor_target(FakeText("", line=0, column=0))
+        self.text.remember_possible_confirm_space_leak(44, target)
+        target.text.write(" ")
+        target.text.select_set(0, 1, 0, 1)
+        self.text.remember_possible_confirm_space_leak(44, target)
+
+        session, text = self.text.consume_confirm_space_leak_session(
+            44,
+            target,
+            "中文",
+        )
+
+        self.assertIsNotNone(session)
+        self.assertEqual(self.text.text_session_commit_result(session, text)[0], "中文")
+
 
 if __name__ == "__main__":
     unittest.main()

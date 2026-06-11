@@ -1,5 +1,7 @@
 """Restore guards for Text Editor IME edit-key leaks."""
 
+import time
+
 from ..core import models
 from ..core import runtime
 from ..core import safe_ops
@@ -8,6 +10,20 @@ from . import text_state
 
 
 TEXT_RESTORE_TIMER_INTERVAL = 0.02
+TEXT_CONFIRM_SPACE_LEAK_SECONDS = 0.5
+
+
+def _ptr_value(value: object) -> int:
+    """Normalize pointer-like values without importing a platform backend."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    try:
+        raw = getattr(value, "value", value)
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def restore_text_cursor(snapshot: models.TextRestoreSnapshot) -> bool:
@@ -130,3 +146,129 @@ def mark_composition_committed(
         text_session,
         unregister_timer=unregister_timer,
     )
+
+
+def remember_possible_confirm_space_leak(hwnd: object, target: object) -> None:
+    """Remember Text state before a Space that may belong to IME confirmation."""
+    state = runtime.state.text_confirm_space_leak
+    snapshot = state.snapshot
+    target_text = text_state.text_data_from_target(target)
+    if (
+        isinstance(snapshot, models.TextRestoreSnapshot)
+        and target_text is not None
+        and text_state.same_text_data(snapshot.text, target_text)
+        and (not state.hwnd or state.hwnd == _ptr_value(hwnd))
+        and time.monotonic() <= state.until
+    ):
+        return
+
+    snapshot = text_state.capture_restore_snapshot(target)
+    if snapshot is None:
+        return
+
+    state.hwnd = _ptr_value(hwnd)
+    state.snapshot = snapshot
+    state.until = time.monotonic() + TEXT_CONFIRM_SPACE_LEAK_SECONDS
+
+
+def clear_confirm_space_leak() -> None:
+    """Drop the suspected confirmation-space snapshot."""
+    runtime.state.text_confirm_space_leak.clear()
+
+
+def ime_result_needs_space_leak_guard(text: str | None) -> bool:
+    """Only committed IME text should be allowed to erase a leaked Space."""
+    if not text:
+        return False
+    candidate = text[1:] if text.startswith(" ") else text
+    return bool(candidate) and not candidate.isascii()
+
+
+def _space_leak_snapshot_is_active(hwnd: object, target: object) -> bool:
+    state = runtime.state.text_confirm_space_leak
+    snapshot = state.snapshot
+    if not isinstance(snapshot, models.TextRestoreSnapshot):
+        return False
+    if state.hwnd and state.hwnd != _ptr_value(hwnd):
+        return False
+    if time.monotonic() > state.until:
+        clear_confirm_space_leak()
+        return False
+    target_text = text_state.text_data_from_target(target)
+    active = target_text is not None and text_state.same_text_data(
+        snapshot.text,
+        target_text,
+    )
+    return active
+
+
+def _body_after_single_space(snapshot: models.TextRestoreSnapshot) -> str | None:
+    offsets = positions.text_selection_offsets(
+        snapshot.body,
+        snapshot.line,
+        snapshot.column,
+        snapshot.select_line,
+        snapshot.select_column,
+    )
+    if offsets is None:
+        return None
+    start, end = offsets
+    return snapshot.body[:start] + " " + snapshot.body[end:]
+
+
+def _session_from_space_leak_snapshot(
+    snapshot: models.TextRestoreSnapshot,
+) -> models.TextImeSession | None:
+    offsets = positions.text_selection_offsets(
+        snapshot.body,
+        snapshot.line,
+        snapshot.column,
+        snapshot.select_line,
+        snapshot.select_column,
+    )
+    if offsets is None:
+        return None
+    start, end = offsets
+    return models.TextImeSession(
+        text=snapshot.text,
+        body=snapshot.body,
+        line=snapshot.line,
+        column=snapshot.column,
+        select_line=snapshot.select_line,
+        select_column=snapshot.select_column,
+        replace_start=start,
+        replace_end=end,
+    )
+
+
+def consume_confirm_space_leak_session(
+    hwnd: object,
+    target: object,
+    text: str | None,
+) -> tuple[models.TextImeSession | None, str | None]:
+    """Convert a just-leaked confirmation Space into a normal Text IME session."""
+    if not _space_leak_snapshot_is_active(hwnd, target):
+        return None, text
+    if not ime_result_needs_space_leak_guard(text):
+        clear_confirm_space_leak()
+        return None, text
+
+    state = runtime.state.text_confirm_space_leak
+    snapshot = state.snapshot
+    if not isinstance(snapshot, models.TextRestoreSnapshot):
+        return None, text
+
+    current_body = safe_ops.maybe_get_text_body(snapshot.text)
+    expected_body = _body_after_single_space(snapshot)
+    if current_body != expected_body:
+        clear_confirm_space_leak()
+        return None, text
+
+    session = _session_from_space_leak_snapshot(snapshot)
+    if session is None:
+        clear_confirm_space_leak()
+        return None, text
+
+    clear_confirm_space_leak()
+    normalized = text[1:] if text.startswith(" ") else text
+    return session, normalized

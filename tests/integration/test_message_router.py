@@ -1,7 +1,7 @@
 import unittest
 
 from tests.support.env import import_bridge_module, patched, reset_runtime
-from tests.support.fakes import FakeWin, font_target, text_editor_target
+from tests.support.fakes import FakeText, FakeWin, font_target, text_editor_target
 
 
 class MessageRouterTests(unittest.TestCase):
@@ -10,6 +10,7 @@ class MessageRouterTests(unittest.TestCase):
         self.router = import_bridge_module("bridge.message_router")
         self.runtime = import_bridge_module("core.runtime")
         self.queue = import_bridge_module("targets.queue")
+        self.text = import_bridge_module("targets.text")
         self.win = FakeWin()
 
     def test_clear_bridge_target_state_clears_recent_guard_state(self) -> None:
@@ -20,6 +21,19 @@ class MessageRouterTests(unittest.TestCase):
         self.runtime.state.ime_direct_ascii.pending_chars = 1
         self.runtime.state.text_restore_guard = object()
         self.runtime.state.text_restore_timer_registered = True
+        self.runtime.state.text_confirm_space_leak.snapshot = object()
+        self.runtime.state.text_hidden_ime_activity.text = object()
+        text_data = FakeText("", line=0, column=0)
+        self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body="",
+            line=0,
+            column=0,
+            select_line=0,
+            select_column=0,
+            replace_start=0,
+            replace_end=0,
+        )
         self.runtime.state.tab_indent.count = 1
 
         self.router.clear_bridge_target_state()
@@ -30,6 +44,10 @@ class MessageRouterTests(unittest.TestCase):
         self.assertEqual(self.runtime.state.ime_direct_ascii.hwnd, 0)
         self.assertIsNone(self.runtime.state.text_restore_guard)
         self.assertFalse(self.runtime.state.text_restore_timer_registered)
+        self.assertIsNone(self.runtime.state.text_ime_session.current)
+        self.assertIsNone(self.runtime.state.text_ime_session.recent)
+        self.assertIsNone(self.runtime.state.text_confirm_space_leak.snapshot)
+        self.assertIsNone(self.runtime.state.text_hidden_ime_activity.text)
         self.assertEqual(self.runtime.state.tab_indent.count, 0)
 
     def test_queue_ime_result_uses_current_queue_signature(self) -> None:
@@ -51,6 +69,89 @@ class MessageRouterTests(unittest.TestCase):
         self.assertIs(queued[0][0][1], target)
         self.assertEqual(queued[0][1]["source"], self.queue.SOURCE_IME_RESULT)
         self.assertNotIn("suppress_space", queued[0][1])
+
+    def test_queue_ime_result_uses_recent_session_after_end_and_leaked_space(self) -> None:
+        text_data = FakeText("", line=0, column=0)
+        target = text_editor_target(text_data)
+        self.runtime.state.insert_on_commit = True
+        self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body="",
+            line=0,
+            column=0,
+            select_line=0,
+            select_column=0,
+            replace_start=0,
+            replace_end=0,
+        )
+        self.router.handle_ime_end_composition(44)
+        text_data.write(" ")
+        text_data.select_set(0, 1, 0, 1)
+
+        with patched(self.router, "bridge_ime_allowed", lambda: True):
+            with patched(self.router, "resolve_input_target_from_state", lambda: target):
+                with patched(
+                    self.router.targets,
+                    "is_usable_input_target",
+                    lambda item: item is target,
+                ):
+                    self.router.queue_ime_result(44, "中")
+        self.queue.flush()
+
+        self.assertEqual(text_data.as_string(), "中")
+
+    def test_queue_ime_result_repairs_suspected_confirm_space_leak(self) -> None:
+        text_data = FakeText("", line=0, column=0)
+        target = text_editor_target(text_data)
+        self.runtime.state.insert_on_commit = True
+        self.text.remember_possible_confirm_space_leak(44, target)
+        text_data.write(" ")
+        text_data.select_set(0, 1, 0, 1)
+
+        with patched(self.router, "bridge_ime_allowed", lambda: True):
+            with patched(self.router, "resolve_input_target_from_state", lambda: target):
+                with patched(
+                    self.router.targets,
+                    "is_usable_input_target",
+                    lambda item: item is target,
+                ):
+                    self.router.queue_ime_result(44, "中")
+        self.queue.flush()
+
+        self.assertEqual(text_data.as_string(), "中")
+
+    def test_queue_ime_result_prefers_leak_session_over_polluted_current_session(
+        self,
+    ) -> None:
+        text_data = FakeText("", line=0, column=0)
+        target = text_editor_target(text_data)
+        self.runtime.state.insert_on_commit = True
+        self.text.remember_possible_confirm_space_leak(44, target)
+        text_data.write(" ")
+        text_data.select_set(0, 1, 0, 1)
+        self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body=" ",
+            line=0,
+            column=1,
+            select_line=0,
+            select_column=1,
+            replace_start=1,
+            replace_end=1,
+        )
+
+        with patched(self.router, "bridge_ime_allowed", lambda: True):
+            with patched(self.router, "resolve_input_target_from_state", lambda: target):
+                with patched(
+                    self.router.targets,
+                    "is_usable_input_target",
+                    lambda item: item is target,
+                ):
+                    self.router.queue_ime_result(44, "中")
+        self.queue.flush()
+
+        self.assertEqual(text_data.as_string(), "中")
+        self.assertTrue(self.runtime.state.text_ime_session.current.committed)
 
     def test_unicode_text_tab_schedules_indent_only_for_plain_raw_tab(self) -> None:
         target = text_editor_target()

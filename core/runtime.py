@@ -2,9 +2,13 @@
 
 from collections import deque
 from dataclasses import dataclass, field
+import time
 
 from . import models
 
+
+TEXT_IME_RECENT_SESSION_SECONDS = 0.5
+TEXT_HIDDEN_IME_ACTIVITY_SECONDS = 2.0
 
 
 @dataclass
@@ -134,12 +138,30 @@ class TextImeSessionState:
     """Current Text Editor IME session and commit generation."""
 
     current: models.TextImeSession | None = None
+    recent: models.TextImeSession | None = None
+    recent_until: float = 0.0
     commit_generation: int = 0
 
     def clear(self) -> None:
         """Forget all Text Editor IME session bookkeeping."""
         self.current = None
+        self.recent = None
+        self.recent_until = 0.0
         self.commit_generation = 0
+
+    def clear_recent(self) -> None:
+        """Forget the short grace-period session after composition end."""
+        self.recent = None
+        self.recent_until = 0.0
+
+    def recent_is_active(self) -> bool:
+        """Return whether an ended session can still accept late IME messages."""
+        if self.recent is None:
+            return False
+        if time.monotonic() > self.recent_until:
+            self.clear_recent()
+            return False
+        return True
 
     def begin(
         self,
@@ -154,6 +176,7 @@ class TextImeSessionState:
         replace_end: int,
     ) -> models.TextImeSession:
         """Create and remember a new Text Editor IME session."""
+        self.clear_recent()
         self.current = models.TextImeSession(
             text=text,
             body=body,
@@ -170,6 +193,13 @@ class TextImeSessionState:
         """Return the active session only when it owns the Text datablock."""
         if self.current is not None and self.current.owns_text(text_data):
             return self.current
+        if (
+            self.recent_is_active()
+            and self.recent is not None
+            and not self.recent.committed
+            and self.recent.owns_text(text_data)
+        ):
+            return self.recent
         return None
 
     def mark_committed(self, session: object) -> None:
@@ -178,8 +208,41 @@ class TextImeSessionState:
             self.commit_generation += 1
 
     def end_current(self) -> None:
-        """Release the active composition without losing snapshot history."""
+        """Release the active composition while keeping a short late-result window."""
+        if self.current is not None and not self.current.committed:
+            self.recent = self.current
+            self.recent_until = time.monotonic() + TEXT_IME_RECENT_SESSION_SECONDS
         self.current = None
+
+
+@dataclass
+class TextConfirmSpaceLeakState:
+    """Snapshot before a Space that may be an IME confirmation key."""
+
+    hwnd: int = 0
+    snapshot: object = None
+    until: float = 0.0
+
+    def clear(self) -> None:
+        """Drop the suspected confirmation-space snapshot."""
+        self.hwnd = 0
+        self.snapshot = None
+        self.until = 0.0
+
+
+@dataclass
+class TextHiddenImeActivityState:
+    """Recent IME key activity before Windows exposes composition state."""
+
+    hwnd: int = 0
+    text: object = None
+    until: float = 0.0
+
+    def clear(self) -> None:
+        """Forget hidden pre-composition activity."""
+        self.hwnd = 0
+        self.text = None
+        self.until = 0.0
 
 
 @dataclass
@@ -202,6 +265,12 @@ class RuntimeState:
     text_restore_guard: object = None
     text_ime_session: TextImeSessionState = field(
         default_factory=TextImeSessionState
+    )
+    text_confirm_space_leak: TextConfirmSpaceLeakState = field(
+        default_factory=TextConfirmSpaceLeakState
+    )
+    text_hidden_ime_activity: TextHiddenImeActivityState = field(
+        default_factory=TextHiddenImeActivityState
     )
     text_draw_handler: object = None
     last_preposition_at: float = 0.0
@@ -231,6 +300,8 @@ class RuntimeState:
         self.text_restore_timer_registered = False
         self.text_restore_guard = None
         self.text_ime_session.clear()
+        self.text_confirm_space_leak.clear()
+        self.text_hidden_ime_activity.clear()
         self.last_preposition_at = 0.0
         self.active_target = None
         self.composition_target = None

@@ -188,6 +188,113 @@ class ImeConfirmSpaceTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertFalse(self.confirm_space.ime_confirm_space_is_active(self.hwnd))
 
+    def test_plain_text_space_does_not_record_leak_snapshot(self) -> None:
+        target = text_editor_target()
+        self.runtime.state.active_target = target
+
+        with patched(
+            self.common.targets,
+            "is_usable_input_target",
+            lambda item: item is target,
+        ):
+            result = self.confirm_space.handle_ime_confirm_space_guard(
+                self.win,
+                self.hwnd,
+                self.win.WM_KEYDOWN,
+                self.win.VK_SPACE,
+                0,
+                lambda *_args: "",
+            )
+
+        self.assertIsNone(result)
+        self.assertIsNone(self.runtime.state.text_confirm_space_leak.snapshot)
+
+    def test_recent_text_session_records_possible_leak_snapshot(self) -> None:
+        target = text_editor_target()
+        text_data = target.text
+        self.runtime.state.active_target = target
+        self.runtime.state.text_ime_session.begin(
+            text=text_data,
+            body="",
+            line=0,
+            column=0,
+            select_line=0,
+            select_column=0,
+            replace_start=0,
+            replace_end=0,
+        )
+        self.runtime.state.text_ime_session.end_current()
+
+        with patched(
+            self.common.targets,
+            "is_usable_input_target",
+            lambda item: item is target,
+        ):
+            result = self.confirm_space.handle_ime_confirm_space_guard(
+                self.win,
+                self.hwnd,
+                self.win.WM_KEYDOWN,
+                self.win.VK_SPACE,
+                0,
+                lambda *_args: "",
+            )
+
+        self.assertIsNone(result)
+        self.assertIsNotNone(self.runtime.state.text_confirm_space_leak.snapshot)
+
+    def test_hidden_ime_activity_records_possible_leak_snapshot(self) -> None:
+        target = text_editor_target()
+        self.runtime.state.active_target = target
+
+        with patched(
+            self.common.targets,
+            "is_usable_input_target",
+            lambda item: item is target,
+        ):
+            self.confirm_space.remember_hidden_text_ime_activity(
+                self.win,
+                self.hwnd,
+                self.win.WM_KEYDOWN,
+                self.win.VK_PROCESSKEY,
+            )
+            result = self.confirm_space.handle_ime_confirm_space_guard(
+                self.win,
+                self.hwnd,
+                self.win.WM_KEYDOWN,
+                self.win.VK_SPACE,
+                0,
+                lambda *_args: "",
+            )
+
+        self.assertIsNone(result)
+        self.assertIsNotNone(self.runtime.state.text_confirm_space_leak.snapshot)
+        self.assertIsNone(self.runtime.state.text_hidden_ime_activity.text)
+
+    def test_expired_hidden_ime_activity_does_not_record_snapshot(self) -> None:
+        target = text_editor_target()
+        self.runtime.state.active_target = target
+        self.runtime.state.text_hidden_ime_activity.hwnd = self.hwnd
+        self.runtime.state.text_hidden_ime_activity.text = target.text
+        self.runtime.state.text_hidden_ime_activity.until = 0.0
+
+        with patched(
+            self.common.targets,
+            "is_usable_input_target",
+            lambda item: item is target,
+        ):
+            result = self.confirm_space.handle_ime_confirm_space_guard(
+                self.win,
+                self.hwnd,
+                self.win.WM_KEYDOWN,
+                self.win.VK_SPACE,
+                0,
+                lambda *_args: "",
+            )
+
+        self.assertIsNone(result)
+        self.assertIsNone(self.runtime.state.text_confirm_space_leak.snapshot)
+        self.assertIsNone(self.runtime.state.text_hidden_ime_activity.text)
+
 
 if __name__ == "__main__":
     unittest.main()

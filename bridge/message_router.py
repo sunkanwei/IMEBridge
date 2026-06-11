@@ -327,6 +327,7 @@ def resolve_input_target_from_state() -> object | None:
 
 def handle_ime_start_composition(hwnd: object) -> None:
     """Lock onto a Blender target at the start of an IME session."""
+    ime_guards.clear_hidden_text_ime_activity()
     try_activate_pending_text_area(hwnd)
     refresh_scope_from_context(hwnd)
     if not bridge_ime_allowed():
@@ -364,7 +365,18 @@ def queue_ime_result(hwnd: object, result: str | None) -> None:
     if not targets.is_usable_input_target(target):
         return
     if models.is_text_editor_target(target):
-        text_session = runtime.state.text_ime_session.active_for_text(target.text)
+        target_text = text_target.text_data_from_target(target)
+        if target_text is None:
+            return
+        text_session = runtime.state.text_ime_session.active_for_text(target_text)
+        leak_session, result = text_target.consume_confirm_space_leak_session(
+            hwnd,
+            target,
+            result,
+        )
+        if leak_session is not None:
+            runtime.state.text_ime_session.mark_committed(text_session)
+            text_session = leak_session
         text_target.mark_composition_committed(text_session)
     else:
         text_session = None

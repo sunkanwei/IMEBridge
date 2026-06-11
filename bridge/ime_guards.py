@@ -26,11 +26,13 @@ from .ime_confirm_space import (
     SPACE_EVENT_CHAR,
     SPACE_EVENT_DOWN,
     SPACE_EVENT_UP,
+    clear_hidden_text_ime_activity,
     clear_ime_confirm_space,
     feed_ime_keyboard_message,
     handle_active_ime_confirm_space,
     handle_ime_confirm_space_guard,
     ime_confirm_space_is_active,
+    remember_hidden_text_ime_activity,
     refresh_ime_confirm_space,
     space_event_kind,
 )
@@ -61,6 +63,7 @@ __all__ = (
     "SPACE_EVENT_CHAR",
     "CompositionReader",
     "clear_ime_confirm_space",
+    "clear_hidden_text_ime_activity",
     "clear_ime_direct_ascii",
     "refresh_ime_confirm_space",
     "ime_confirm_space_is_active",
@@ -68,6 +71,7 @@ __all__ = (
     "feed_ime_keyboard_message",
     "handle_active_ime_confirm_space",
     "handle_ime_confirm_space_guard",
+    "remember_hidden_text_ime_activity",
     "caps_lock_is_on",
     "direct_ascii_state_is_active",
     "refresh_direct_ascii_state",
@@ -111,6 +115,8 @@ def handle_message_guards(
     comp_string_reader: CompositionReader,
 ) -> int | None:
     """Run the keyboard shields before normal IME dispatch."""
+    remember_hidden_text_ime_activity(win, hwnd, msg_value, wparam)
+
     space_result = handle_ime_confirm_space_guard(
         win,
         hwnd,

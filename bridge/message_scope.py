@@ -59,10 +59,12 @@ def clear_bridge_target_state() -> None:
     """Forget only the target state owned by IMEBridge."""
     target_state.clear_active_target()
     runtime.state.composition_target = None
-    runtime.state.text_ime_session.end_current()
+    runtime.state.text_ime_session.clear()
     ime_guards.clear_ime_confirm_space()
+    ime_guards.clear_hidden_text_ime_activity()
     ime_guards.clear_ime_direct_ascii()
     text_target.cancel_restore_guard()
+    text_target.clear_confirm_space_leak()
     text_target.cancel_tab_indent()
     runtime.state.font_result_dedup.clear()
 

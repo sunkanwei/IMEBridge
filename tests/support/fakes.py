@@ -196,6 +196,7 @@ class FakeWin:
     VK_DELETE = 0x2E
     VK_F2 = 0x71
     VK_F3 = 0x72
+    VK_PROCESSKEY = 0xE5
     VK_OEM_102 = 0xE2
     VK_SPACE = 0x20
     GCS_COMPSTR = 0x0008

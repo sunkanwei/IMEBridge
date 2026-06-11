@@ -3,11 +3,14 @@
 import time
 
 from . import ime_guard_common as common
+from . import ime_switch
 from ..core import runtime
 from ..platforms import native as platform_api
+from ..targets import text as text_target
 
 
 SPACE_CONFIRM_STALE_SECONDS = 2.0
+VK_PROCESSKEY = 0xE5
 SPACE_EVENT_DOWN = "down"
 SPACE_EVENT_UP = "up"
 SPACE_EVENT_CHAR = "char"
@@ -16,6 +19,11 @@ SPACE_EVENT_CHAR = "char"
 def clear_ime_confirm_space() -> None:
     """Forget any pending IME-owned Space key sequence."""
     runtime.state.ime_confirm_space.clear()
+
+
+def clear_hidden_text_ime_activity() -> None:
+    """Forget IME key activity that has not yet become a composition."""
+    runtime.state.text_hidden_ime_activity.clear()
 
 
 def refresh_ime_confirm_space(hwnd: object) -> None:
@@ -104,6 +112,96 @@ def handle_active_ime_confirm_space(
     return 0
 
 
+def _native_ime_may_be_composing(win: object, hwnd: object) -> bool:
+    """Return whether the window IME is in a native mode worth guarding."""
+    if not ime_switch.is_open(win, hwnd):
+        return False
+    native_mode = ime_switch.is_native_conversion_mode(win, hwnd)
+    return native_mode is not False
+
+
+def _is_process_key_message(win: object, msg_value: int, wparam: object) -> bool:
+    """Detect IME-owned key messages emitted before composition starts."""
+    if msg_value not in {win.WM_KEYDOWN, win.WM_IME_KEYDOWN}:
+        return False
+    process_key = getattr(win, "VK_PROCESSKEY", VK_PROCESSKEY)
+    return platform_api.ptr_value(wparam) == process_key
+
+
+def remember_hidden_text_ime_activity(
+    win: object,
+    hwnd: object,
+    msg_value: int,
+    wparam: object,
+) -> None:
+    """Remember IME key activity before IMM exposes a composition string."""
+    if not _is_process_key_message(win, msg_value, wparam):
+        return
+    if common.modifier_shortcut_is_down(win):
+        return
+    if not _native_ime_may_be_composing(win, hwnd):
+        return
+
+    target = common.active_target_for_ime_guard()
+    target_text = text_target.text_data_from_target(target)
+    if target_text is None:
+        return
+
+    state = runtime.state.text_hidden_ime_activity
+    state.hwnd = platform_api.ptr_value(hwnd)
+    state.text = target_text
+    state.until = time.monotonic() + runtime.TEXT_HIDDEN_IME_ACTIVITY_SECONDS
+
+
+def hidden_text_ime_activity_is_active(hwnd: object, target: object) -> bool:
+    """Return whether a hidden preedit sequence recently targeted this Text."""
+    state = runtime.state.text_hidden_ime_activity
+    if state.text is None:
+        return False
+    if state.hwnd and state.hwnd != platform_api.ptr_value(hwnd):
+        return False
+    if time.monotonic() > state.until:
+        clear_hidden_text_ime_activity()
+        return False
+
+    target_text = text_target.text_data_from_target(target)
+    return target_text is not None and text_target.same_text_data(
+        state.text,
+        target_text,
+    )
+
+
+def text_space_may_confirm_ime(
+    win: object,
+    hwnd: object,
+    target: object,
+) -> bool:
+    """Return whether an unowned Space may still belong to IME confirmation."""
+    if common.modifier_shortcut_is_down(win):
+        return False
+    target_text = text_target.text_data_from_target(target)
+    if target_text is None:
+        return False
+    session = runtime.state.text_ime_session.active_for_text(target_text)
+    hidden = hidden_text_ime_activity_is_active(hwnd, target)
+    return session is not None or hidden
+
+
+def remember_possible_text_confirm_space(
+    win: object,
+    hwnd: object,
+    event_kind: str,
+) -> None:
+    """Snapshot Text state before passing through a maybe-IME Space."""
+    if event_kind not in {SPACE_EVENT_DOWN, SPACE_EVENT_CHAR}:
+        return
+    target = common.active_target_for_ime_guard()
+    if not text_space_may_confirm_ime(win, hwnd, target):
+        return
+    text_target.remember_possible_confirm_space_leak(hwnd, target)
+    clear_hidden_text_ime_activity()
+
+
 def handle_ime_confirm_space_guard(
     win: object,
     hwnd: object,
@@ -118,7 +216,8 @@ def handle_ime_confirm_space_guard(
         return None
 
     state = runtime.state.ime_confirm_space
-    if ime_confirm_space_is_active(hwnd):
+    active = ime_confirm_space_is_active(hwnd)
+    if active:
         if event_kind == SPACE_EVENT_DOWN and state.released and not state.char_seen:
             clear_ime_confirm_space()
         else:
@@ -138,6 +237,7 @@ def handle_ime_confirm_space_guard(
 
     target = common.ime_edit_guard_target(win, hwnd, comp_string_reader)
     if target is None:
+        remember_possible_text_confirm_space(win, hwnd, event_kind)
         return None
 
     begin_ime_confirm_space(hwnd, event_kind)

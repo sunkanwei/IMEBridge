@@ -54,8 +54,10 @@ def clear_bridge_target_state() -> None:
     """Forget only the target state owned by the macOS bridge."""
     target_state.clear_active_target()
     runtime.state.composition_target = None
-    runtime.state.text_ime_session.end_current()
+    runtime.state.text_ime_session.clear()
+    runtime.state.text_hidden_ime_activity.clear()
     text_target.cancel_tab_indent()
+    text_target.clear_confirm_space_leak()
     runtime.state.font_result_dedup.clear()
 
 
@@ -190,7 +192,10 @@ def handle_committed_text(text: str) -> bool:
 
     text_session = None
     if models.is_text_editor_target(target):
-        text_session = runtime.state.text_ime_session.active_for_text(target.text)
+        target_text = text_target.text_data_from_target(target)
+        if target_text is None:
+            return False
+        text_session = runtime.state.text_ime_session.active_for_text(target_text)
 
     insert_queue.queue(
         text,
