@@ -297,7 +297,9 @@ def bridge_ime_allowed() -> bool:
     if current_kind == input_scope.SCOPE_ENABLED_TARGET:
         target = runtime.state.composition_target or runtime.state.active_target
         return targets.is_usable_input_target(target)
-    return targets.is_usable_input_target(runtime.state.active_target)
+
+    current_target = targets.make_input_target_from_context(bpy.context)
+    return targets.is_usable_input_target(current_target)
 
 
 def handle_out_of_scope_ime_message(

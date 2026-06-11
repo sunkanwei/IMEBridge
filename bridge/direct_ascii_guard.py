@@ -206,7 +206,7 @@ def handle_direct_ascii_char(
     value = platform_api.ptr_value(wparam)
     if not is_direct_ascii_char(value):
         consume_direct_ascii_char(hwnd)
-        return 0
+        return None
 
     target = direct_ascii_pending_target(hwnd)
     if target is None:

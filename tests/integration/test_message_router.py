@@ -97,6 +97,49 @@ class MessageRouterTests(unittest.TestCase):
         self.assertEqual(queued[0][1]["source"], self.queue.SOURCE_IME_RESULT)
         self.assertNotIn("suppress_space", queued[0][1])
 
+    def test_ime_start_does_not_bind_neutral_scope_to_old_text_target(self) -> None:
+        old_target = text_editor_target()
+        self.runtime.state.active_target = old_target
+        self.runtime.state.input_scope.current_kind = self.router.input_scope.SCOPE_NEUTRAL
+
+        with patched(
+            self.router.ime_context,
+            "reset_ime_candidate_position",
+            lambda *_args: True,
+        ):
+            with patched(
+                self.router.targets,
+                "make_input_target_from_context",
+                lambda _context: None,
+            ):
+                with patched(
+                    self.router.targets,
+                    "is_usable_input_target",
+                    lambda item: item is old_target,
+                ):
+                    self.router.handle_ime_start_composition(44)
+
+        self.assertIsNone(self.runtime.state.active_target)
+        self.assertIsNone(self.runtime.state.composition_target)
+        self.assertIsNone(self.runtime.state.text_ime_session.current)
+
+    def test_bridge_ime_allowed_uses_current_context_in_neutral_scope(self) -> None:
+        target = text_editor_target()
+        self.runtime.state.active_target = object()
+        self.runtime.state.input_scope.current_kind = self.router.input_scope.SCOPE_NEUTRAL
+
+        with patched(
+            self.router.targets,
+            "make_input_target_from_context",
+            lambda _context: target,
+        ):
+            with patched(
+                self.router.targets,
+                "is_usable_input_target",
+                lambda item: item is target,
+            ):
+                self.assertTrue(self.router.bridge_ime_allowed())
+
     def test_queue_ime_result_uses_recent_session_after_end_and_leaked_space(self) -> None:
         text_data = FakeText("", line=0, column=0)
         target = text_editor_target(text_data)

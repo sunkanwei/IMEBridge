@@ -120,6 +120,71 @@ class DirectAsciiTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertFalse(self.direct_ascii.direct_ascii_state_is_active(self.hwnd))
 
+    def test_non_ascii_char_is_not_swallowed_by_pending_direct_ascii(self) -> None:
+        target = text_editor_target()
+        self.runtime.state.active_target = target
+        self.win.user32.key_state[self.win.VK_CAPITAL] = 0x0001
+        raw_event = {"vkey": ord("A"), "key_down": 1}
+        queued: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        def queue(*args: object, **kwargs: object) -> None:
+            queued.append((args, kwargs))
+
+        with patched(
+            self.direct_ascii.targets,
+            "is_usable_input_target",
+            lambda item: item is target,
+        ):
+            with patched(self.direct_ascii.ime_switch, "is_open", lambda *_args: True):
+                with patched(
+                    self.direct_ascii.ime_switch,
+                    "is_native_conversion_mode",
+                    lambda *_args: True,
+                ):
+                    with patched(
+                        self.direct_ascii.platform_api,
+                        "read_raw_keyboard",
+                        lambda *_args: raw_event,
+                    ):
+                        self.assertEqual(
+                            self.direct_ascii.handle_direct_ascii_guard(
+                                self.win,
+                                self.hwnd,
+                                self.win.WM_INPUT,
+                                0,
+                                1,
+                                lambda *_args: "",
+                            ),
+                            0,
+                        )
+
+                    with patched(self.direct_ascii.insert_queue, "queue", queue):
+                        self.assertIsNone(
+                            self.direct_ascii.handle_direct_ascii_guard(
+                                self.win,
+                                self.hwnd,
+                                self.win.WM_CHAR,
+                                ord("中"),
+                                0,
+                                lambda *_args: "",
+                            )
+                        )
+
+                    self.assertEqual(
+                        self.direct_ascii.handle_direct_ascii_guard(
+                            self.win,
+                            self.hwnd,
+                            self.win.WM_KEYUP,
+                            ord("A"),
+                            0,
+                            lambda *_args: "",
+                        ),
+                        0,
+                    )
+
+        self.assertEqual(queued, [])
+        self.assertFalse(self.direct_ascii.direct_ascii_state_is_active(self.hwnd))
+
 
 if __name__ == "__main__":
     unittest.main()

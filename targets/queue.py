@@ -52,7 +52,7 @@ def flush_one(item: models.PendingInsert) -> None:
     if not inserted:
         return
 
-    if models.is_font_edit_target(item.target):
+    if models.is_font_edit_target(item.target) and item.source == SOURCE_IME_RESULT:
         from ..bridge import font_commit
 
         font_commit.mark_recent_font_result(item.target, item.text)
