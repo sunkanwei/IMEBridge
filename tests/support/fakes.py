@@ -127,6 +127,8 @@ class FakeImm32:
         self.notifications: list[tuple[object, int, int, int]] = []
         self.context = object()
         self.context_available = True
+        self.composition_windows: list[object] = []
+        self.candidate_windows: list[object] = []
 
     def ImmIsUIMessageW(
         self,
@@ -165,6 +167,14 @@ class FakeImm32:
 
     def ImmNotifyIME(self, himc: object, action: int, index: int, value: int) -> bool:
         self.notifications.append((himc, action, index, value))
+        return True
+
+    def ImmSetCompositionWindow(self, _himc: object, form: object) -> bool:
+        self.composition_windows.append(form._obj)
+        return True
+
+    def ImmSetCandidateWindow(self, _himc: object, form: object) -> bool:
+        self.candidate_windows.append(form._obj)
         return True
 
 
@@ -210,6 +220,9 @@ class FakeWin:
     GCS_RESULTSTR = 0x0800
     IME_CMODE_NATIVE = 0x0001
     IME_CMODE_NOCONVERSION = 0x0100
+    CFS_DEFAULT = 0x0000
+    CFS_POINT = 0x0002
+    CFS_EXCLUDE = 0x0080
     NI_CLOSECANDIDATE = 0x0011
     NI_COMPOSITIONSTR = 0x0015
     CPS_CANCEL = 0x0004

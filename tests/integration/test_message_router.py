@@ -8,6 +8,7 @@ class MessageRouterTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_runtime()
         self.router = import_bridge_module("bridge.message_router")
+        self.font_commit = import_bridge_module("bridge.font_commit")
         self.runtime = import_bridge_module("core.runtime")
         self.queue = import_bridge_module("targets.queue")
         self.font_restore = import_bridge_module("targets.font_restore")
@@ -38,8 +39,14 @@ class MessageRouterTests(unittest.TestCase):
             replace_end=0,
         )
         self.runtime.state.tab_indent.count = 1
+        resets: list[object] = []
 
-        self.router.clear_bridge_target_state()
+        with patched(
+            self.router.ime_context,
+            "reset_ime_candidate_position",
+            lambda hwnd=None: resets.append(hwnd) or True,
+        ):
+            self.router.clear_bridge_target_state(44)
 
         self.assertIsNone(self.runtime.state.active_target)
         self.assertIsNone(self.runtime.state.composition_target)
@@ -54,6 +61,21 @@ class MessageRouterTests(unittest.TestCase):
         self.assertIsNone(self.runtime.state.font_confirm_space_leak.snapshot)
         self.assertEqual(self.runtime.state.font_hidden_ime_activity.target_key, 0)
         self.assertEqual(self.runtime.state.tab_indent.count, 0)
+        self.assertEqual(resets, [44])
+
+    def test_clear_bridge_target_state_does_not_reset_without_bridge_target(
+        self,
+    ) -> None:
+        resets: list[object] = []
+
+        with patched(
+            self.router.ime_context,
+            "reset_ime_candidate_position",
+            lambda hwnd=None: resets.append(hwnd) or True,
+        ):
+            self.router.clear_bridge_target_state(44)
+
+        self.assertEqual(resets, [])
 
     def test_queue_ime_result_uses_current_queue_signature(self) -> None:
         target = font_target(778)
@@ -241,6 +263,46 @@ class MessageRouterTests(unittest.TestCase):
             ):
                 self.queue.flush()
 
+        self.assertEqual(target.obj.data.body, "中")
+
+    def test_font_char_fallback_repairs_confirm_space_leak(self) -> None:
+        target = font_target(781, body="")
+        self.font_restore.remember_hidden_ime_activity(44, target)
+        self.font_restore.remember_possible_confirm_space_leak(44, target)
+        target.obj.data.body = " "
+
+        class DeletePrevious:
+            def poll(self) -> bool:
+                return True
+
+            def __call__(self, *args: object, **kwargs: object) -> set[str]:
+                target.obj.data.body = target.obj.data.body[:-1]
+                return {"FINISHED"}
+
+        class TextInsert:
+            def poll(self) -> bool:
+                return True
+
+            def __call__(self, *args: object, **kwargs: object) -> set[str]:
+                target.obj.data.body += str(kwargs["text"])
+                return {"FINISHED"}
+
+        with patched(self.font_commit, "font_input_target_from_state", lambda: target):
+            result = self.font_commit.handle_font_char_commit(
+                self.win,
+                44,
+                self.win.WM_IME_CHAR,
+                ord("中"),
+            )
+        with patched(self.queue.font_target.bpy.ops.font, "delete", DeletePrevious()):
+            with patched(
+                self.queue.font_target.bpy.ops.font,
+                "text_insert",
+                TextInsert(),
+            ):
+                self.queue.flush()
+
+        self.assertEqual(result, 0)
         self.assertEqual(target.obj.data.body, "中")
 
     def test_unicode_text_tab_schedules_indent_only_for_plain_raw_tab(self) -> None:

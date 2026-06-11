@@ -8,6 +8,7 @@ from ..core import models
 from ..core import runtime
 from ..targets import detect as targets
 from ..targets import font as font_target
+from ..targets import font_restore
 from ..targets import queue as insert_queue
 from ..targets import state as target_state
 from ..platforms import native as platform_api
@@ -164,11 +165,17 @@ def handle_font_char_commit(
     if is_recent_font_result_char(target, char):
         return 0
 
+    font_space_leak, char = font_restore.consume_confirm_space_leak_snapshot(
+        hwnd,
+        target,
+        char,
+    )
     target_state.set_active_target(target)
     insert_queue.queue(
         char,
         target,
         hwnd=hwnd,
         source=insert_queue.SOURCE_FONT_CHAR,
+        font_space_leak=font_space_leak,
     )
     return 0

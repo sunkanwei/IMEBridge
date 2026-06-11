@@ -17,6 +17,7 @@ from ..platforms import native as platform_api
 
 LINE_EXCLUSION_PADDING = 6
 TEXT_CARET_PREPOSITION_INTERVAL = 0.25
+CANDIDATE_FORM_COUNT = 4
 # 3D Text edit mode does not expose a Python caret screen position. These
 # values anchor the IME candidate window to a stable point inside the View3D
 # region instead of pretending to follow an unavailable caret.
@@ -247,6 +248,53 @@ def apply_ime_window_position(
         win.imm32.ImmReleaseContext(hwnd, himc)
 
     return ok_comp or ok_cand
+
+
+def reset_ime_candidate_position(hwnd: object = None) -> bool:
+    """Return IME candidate and composition placement to the system default."""
+    if platform_api.backend_name() != "windows":
+        return False
+
+    win = platform_api.ensure()
+    if win is None or not hasattr(win, "imm32"):
+        return False
+
+    hwnd = ghost_window_for_ime(win, hwnd)
+    if not hwnd:
+        return False
+
+    himc = win.imm32.ImmGetContext(hwnd)
+    if not himc:
+        return False
+
+    ok_comp = False
+    ok_candidates = 0
+    try:
+        comp_form = platform_api.COMPOSITIONFORM()
+        comp_form.dwStyle = win.CFS_DEFAULT
+        ok_comp = bool(
+            win.imm32.ImmSetCompositionWindow(himc, ctypes.byref(comp_form))
+        )
+
+        for index in range(CANDIDATE_FORM_COUNT):
+            cand_form = platform_api.CANDIDATEFORM()
+            cand_form.dwIndex = index
+            cand_form.dwStyle = win.CFS_DEFAULT
+            if win.imm32.ImmSetCandidateWindow(himc, ctypes.byref(cand_form)):
+                ok_candidates += 1
+    except (
+        AttributeError,
+        OSError,
+        ReferenceError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ):
+        return False
+    finally:
+        win.imm32.ImmReleaseContext(hwnd, himc)
+
+    return bool(ok_comp or ok_candidates)
 
 
 def update_ime_candidate_position(hwnd: object = None, target: object = None) -> bool:

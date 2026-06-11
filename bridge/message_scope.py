@@ -56,8 +56,14 @@ def recent_font_target_from_state() -> object | None:
     return target
 
 
-def clear_bridge_target_state() -> None:
+def clear_bridge_target_state(hwnd: object = None) -> None:
     """Forget only the target state owned by IMEBridge."""
+    had_bridge_target = (
+        runtime.state.active_target is not None
+        or runtime.state.composition_target is not None
+    )
+    if had_bridge_target:
+        ime_context.reset_ime_candidate_position(hwnd)
     target_state.clear_active_target()
     runtime.state.composition_target = None
     runtime.state.text_ime_session.clear()
@@ -87,14 +93,14 @@ def apply_shortcut_scope(scope: input_scope.InputScope) -> None:
     if refresh_scope_from_context(scope.hwnd):
         return
 
-    clear_bridge_target_state()
+    clear_bridge_target_state(scope.hwnd)
     if config.auto_english_on_shortcuts():
         ime_switch.close_for_shortcut_surface(scope.hwnd)
 
 
 def apply_neutral_scope(scope: input_scope.InputScope) -> None:
     """Step away from bridge-owned targets without touching native UI fields."""
-    clear_bridge_target_state()
+    clear_bridge_target_state(scope.hwnd)
     ime_switch.restore_if_managed(scope.hwnd)
 
 

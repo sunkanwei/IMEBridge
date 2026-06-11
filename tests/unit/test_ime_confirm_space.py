@@ -270,7 +270,7 @@ class ImeConfirmSpaceTests(unittest.TestCase):
         self.assertIsNotNone(self.runtime.state.text_confirm_space_leak.snapshot)
         self.assertIsNone(self.runtime.state.text_hidden_ime_activity.text)
 
-    def test_hidden_font_ime_activity_records_possible_leak_snapshot(self) -> None:
+    def test_hidden_font_ime_activity_swallows_confirm_space(self) -> None:
         target = font_target(body="")
         self.runtime.state.active_target = target
 
@@ -294,9 +294,10 @@ class ImeConfirmSpaceTests(unittest.TestCase):
                 lambda *_args: "",
             )
 
-        self.assertIsNone(result)
+        self.assertEqual(result, 0)
         self.assertIsNotNone(self.runtime.state.font_confirm_space_leak.snapshot)
         self.assertEqual(self.runtime.state.font_hidden_ime_activity.target_key, 0)
+        self.assertTrue(self.confirm_space.ime_confirm_space_is_active(self.hwnd))
 
     def test_expired_hidden_ime_activity_does_not_record_snapshot(self) -> None:
         target = text_editor_target()

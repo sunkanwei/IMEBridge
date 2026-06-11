@@ -130,7 +130,7 @@ def handle_mouse_down(
         clear_native_text_ui_handoff()
         set_neutral_scope()
         cancel_pending_text_area_activation()
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
         schedule_input_scope_application(
             input_scope.InputScope(
                 input_scope.SCOPE_NEUTRAL,
@@ -156,7 +156,7 @@ def handle_mouse_down(
     ):
         pass
     else:
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
 
     schedule_input_scope_application(scope)
 
@@ -187,21 +187,26 @@ def handle_mouse_message(
         runtime.state.composition_target
         and runtime.state.composition_target != runtime.state.active_target
     ):
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
     return True
 
 
-def handle_focus_message(win: object, msg_value: int, wparam: object) -> bool:
+def handle_focus_message(
+    win: object,
+    hwnd: object,
+    msg_value: int,
+    wparam: object,
+) -> bool:
     """Handle focus messages and tell the caller whether routing should stop."""
     if msg_value == win.WM_KILLFOCUS:
         set_neutral_scope()
         cancel_pending_input_scope()
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
         return True
     if msg_value == win.WM_ACTIVATEAPP and not bool(platform_api.ptr_value(wparam)):
         set_neutral_scope()
         cancel_pending_input_scope()
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
         return True
     return msg_value == win.WM_SETFOCUS
 
@@ -219,7 +224,7 @@ def handle_native_text_ui_shortcut(
     set_neutral_scope()
     runtime.state.input_scope.native_text_ui_handoff = True
     cancel_pending_input_scope()
-    clear_bridge_target_state()
+    clear_bridge_target_state(hwnd)
     ime_switch.restore_if_managed(hwnd)
     return True
 
@@ -308,7 +313,7 @@ def handle_out_of_scope_ime_message(
         return None
 
     if runtime.state.input_scope.current_kind == input_scope.SCOPE_SHORTCUT_SURFACE:
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
         if config.auto_english_on_shortcuts():
             ime_switch.close_for_shortcut_surface(hwnd)
             return message_result.MessageResult.handled_value(0)
@@ -332,7 +337,7 @@ def handle_ime_start_composition(hwnd: object) -> None:
     try_activate_pending_text_area(hwnd)
     refresh_scope_from_context(hwnd)
     if not bridge_ime_allowed():
-        clear_bridge_target_state()
+        clear_bridge_target_state(hwnd)
         return
 
     current_target = targets.make_input_target_from_context(bpy.context)
@@ -465,7 +470,7 @@ def handle_window_message(
     if not is_supported_message(win, msg_value):
         return message_result.MessageResult.pass_through()
 
-    if handle_focus_message(win, msg_value, wparam):
+    if handle_focus_message(win, hwnd, msg_value, wparam):
         return message_result.MessageResult.pass_through()
 
     if handle_native_text_ui_shortcut(win, hwnd, msg_value, wparam):

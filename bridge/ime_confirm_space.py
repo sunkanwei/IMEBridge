@@ -204,21 +204,29 @@ def font_space_may_confirm_ime(
     )
 
 
-def remember_possible_confirm_space_leak(
+def handle_possible_confirm_space_leak(
     win: object,
     hwnd: object,
+    msg_value: int,
+    wparam: object,
+    lparam: object,
     event_kind: str,
-) -> None:
+) -> int | None:
     """Snapshot editable target state before a maybe-IME Space passes through."""
     if event_kind not in {SPACE_EVENT_DOWN, SPACE_EVENT_CHAR}:
-        return
+        return None
     target = common.active_target_for_ime_guard()
     if text_space_may_confirm_ime(win, hwnd, target):
         text_target.remember_possible_confirm_space_leak(hwnd, target)
         clear_hidden_text_ime_activity()
+        return None
     elif font_space_may_confirm_ime(hwnd, target):
         font_restore.remember_possible_confirm_space_leak(hwnd, target)
+        begin_ime_confirm_space(hwnd, event_kind)
+        feed_ime_keyboard_message(win, hwnd, msg_value, wparam, lparam)
         clear_hidden_text_ime_activity()
+        return 0
+    return None
 
 
 def handle_ime_confirm_space_guard(
@@ -256,8 +264,14 @@ def handle_ime_confirm_space_guard(
 
     target = common.ime_edit_guard_target(win, hwnd, comp_string_reader)
     if target is None:
-        remember_possible_confirm_space_leak(win, hwnd, event_kind)
-        return None
+        return handle_possible_confirm_space_leak(
+            win,
+            hwnd,
+            msg_value,
+            wparam,
+            lparam,
+            event_kind,
+        )
 
     begin_ime_confirm_space(hwnd, event_kind)
     feed_ime_keyboard_message(win, hwnd, msg_value, wparam, lparam)
