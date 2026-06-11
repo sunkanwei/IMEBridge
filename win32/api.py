@@ -131,6 +131,7 @@ class Win32Api:
     VK_TAB = 0x09
     VK_RETURN = 0x0D
     VK_SHIFT = 0x10
+    VK_CAPITAL = 0x14
     VK_ESCAPE = 0x1B
     VK_CONTROL = 0x11
     VK_MENU = 0x12
@@ -145,6 +146,7 @@ class Win32Api:
     VK_DELETE = 0x2E
     VK_F2 = 0x71
     VK_F3 = 0x72
+    VK_OEM_102 = 0xE2
     VK_SPACE = 0x20
 
     GCS_COMPSTR = 0x0008

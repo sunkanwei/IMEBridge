@@ -21,6 +21,25 @@ class ImeConfirmSpaceState:
 
 
 @dataclass
+class ImeDirectAsciiState:
+    """Printable ASCII keys diverted from raw input until their WM_CHAR arrives."""
+
+    hwnd: int = 0
+    target: object = None
+    active_vkeys: set[int] = field(default_factory=set)
+    pending_chars: int = 0
+    until: float = 0.0
+
+    def clear(self) -> None:
+        """Drop pending direct ASCII input."""
+        self.hwnd = 0
+        self.target = None
+        self.active_vkeys.clear()
+        self.pending_chars = 0
+        self.until = 0.0
+
+
+@dataclass
 class TabIndentState:
     """Deferred Text Editor indentation after suppressing Unicode autocomplete."""
 
@@ -189,6 +208,9 @@ class RuntimeState:
     ime_confirm_space: ImeConfirmSpaceState = field(
         default_factory=ImeConfirmSpaceState
     )
+    ime_direct_ascii: ImeDirectAsciiState = field(
+        default_factory=ImeDirectAsciiState
+    )
     tab_indent: TabIndentState = field(default_factory=TabIndentState)
     text_area_activation: TextAreaActivationState = field(
         default_factory=TextAreaActivationState
@@ -209,6 +231,7 @@ class RuntimeState:
         self.active_target = None
         self.composition_target = None
         self.ime_confirm_space.clear()
+        self.ime_direct_ascii.clear()
         self.tab_indent.clear()
         self.text_area_activation.clear()
         self.font_result_dedup.clear()

@@ -76,6 +76,7 @@ def clear_bridge_target_state() -> None:
     runtime.state.composition_target = None
     runtime.state.text_ime_session.end_current()
     ime_guards.clear_ime_confirm_space()
+    ime_guards.clear_ime_direct_ascii()
     text_target.cancel_tab_indent()
     runtime.state.font_result_dedup.clear()
 

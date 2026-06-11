@@ -10,6 +10,7 @@ from . import text as text_target
 PENDING_INSERT_TIMER_INTERVAL = 0.01
 SOURCE_IME_RESULT = "ime_result"
 SOURCE_FONT_CHAR = "font_char"
+SOURCE_DIRECT_ASCII = "direct_ascii"
 
 
 def flush() -> None:
