@@ -36,6 +36,25 @@ class TabIndentState:
 
 
 @dataclass
+class TextAreaActivationState:
+    """Pending Text Editor activation after a header action changes text."""
+
+    hwnd: object = None
+    hit: object = None
+    previous_text_key: int = 0
+    attempts: int = 0
+    timer_registered: bool = False
+
+    def clear(self) -> None:
+        """Drop pending Text Editor activation."""
+        self.hwnd = None
+        self.hit = None
+        self.previous_text_key = 0
+        self.attempts = 0
+        self.timer_registered = False
+
+
+@dataclass
 class FontResultDedupState:
     """Last 3D Text commit seen through the character-message fallback."""
 
@@ -171,6 +190,9 @@ class RuntimeState:
         default_factory=SpaceSuppressionState
     )
     tab_indent: TabIndentState = field(default_factory=TabIndentState)
+    text_area_activation: TextAreaActivationState = field(
+        default_factory=TextAreaActivationState
+    )
     font_result_dedup: FontResultDedupState = field(
         default_factory=FontResultDedupState
     )
@@ -188,6 +210,7 @@ class RuntimeState:
         self.composition_target = None
         self.space_suppression.clear()
         self.tab_indent.clear()
+        self.text_area_activation.clear()
         self.font_result_dedup.clear()
         self.input_scope.clear()
 

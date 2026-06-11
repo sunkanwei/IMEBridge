@@ -106,6 +106,53 @@ def area_hit_at_client_point(
     return None
 
 
+def text_editor_area_hit_at_client_point(
+    hwnd: object,
+    client_x: int,
+    client_y: int,
+) -> AreaHit | None:
+    """Resolve Text Editor clicks outside the editable WINDOW region."""
+    win = platform_api.ensure()
+    if win is None:
+        return None
+
+    client_height = platform_api.client_height(win, hwnd)
+    if client_height is None:
+        return None
+
+    screen_point = platform_api.client_to_screen(win, hwnd, client_x, client_y)
+    blender_y = client_height - client_y
+    for window in candidate_windows(screen_point):
+        try:
+            screen = window.screen
+            areas = tuple(screen.areas)
+        except (AttributeError, ReferenceError, RuntimeError):
+            continue
+        for area in areas:
+            try:
+                if area.type != "TEXT_EDITOR":
+                    continue
+                if not (area.x <= client_x < area.x + area.width):
+                    continue
+                if not (area.y <= blender_y < area.y + area.height):
+                    continue
+                region = platform_api.window_region(area)
+                space = area.spaces.active
+            except (AttributeError, ReferenceError, RuntimeError):
+                continue
+            if region is None or space is None:
+                continue
+            return AreaHit(
+                window,
+                area,
+                region,
+                space,
+                area_x=client_x - area.x,
+                area_y=blender_y - area.y,
+            )
+    return None
+
+
 def area_hit_at_window_point(
     window_x: int,
     window_y: int,
@@ -258,6 +305,15 @@ def from_mouse_lparam(hwnd: object, lparam: object) -> InputScope:
     """Resolve a mouse-down message into an IMEBridge input scope."""
     client_x, client_y = client_point_from_lparam(lparam)
     return classify_hit(hwnd, area_hit_at_client_point(hwnd, client_x, client_y))
+
+
+def text_editor_area_from_mouse_lparam(
+    hwnd: object,
+    lparam: object,
+) -> AreaHit | None:
+    """Resolve a mouse-down message to its owning Text Editor area."""
+    client_x, client_y = client_point_from_lparam(lparam)
+    return text_editor_area_hit_at_client_point(hwnd, client_x, client_y)
 
 
 def from_event(context: object, event: object, hwnd: object = None) -> InputScope:
