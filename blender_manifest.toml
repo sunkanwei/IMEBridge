@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "IMEBridge"
-version = "0.1.0"
+version = "0.2.0"
 name = "IMEBridge"
 tagline = "Bridge native IME input into Blender text editing"
 maintainer = "Sunkanwei"
