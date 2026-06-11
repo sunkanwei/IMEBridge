@@ -67,6 +67,28 @@ class GateCheckTests(unittest.TestCase):
         self.assertIn("tests/test_runtime.py", messages)
         self.assertIn("build_extension.bat", messages)
 
+    def test_package_check_requires_manifest_runtime_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "blender_manifest.toml").write_text(
+                '\n'.join(
+                    [
+                        'schema_version = "1.0.0"',
+                        '[build]',
+                        'paths = ["__init__.py", "core/runtime.py"]',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            package = root / "IMEBridge-0.2.0.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("IMEBridge/blender_manifest.toml", "")
+                archive.writestr("IMEBridge/__init__.py", "")
+
+            messages = "\n".join(self.package_check.check_package(package, root))
+
+        self.assertIn("core/runtime.py", messages)
+
     def test_text_hygiene_reports_common_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

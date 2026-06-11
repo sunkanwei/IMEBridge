@@ -8,6 +8,7 @@ class TextTransactionTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_runtime()
         self.text = import_bridge_module("targets.text")
+        self.text_indent = import_bridge_module("targets.text_indent")
         self.runtime = import_bridge_module("core.runtime")
 
     def test_offsets_round_trip_multiline_unicode(self) -> None:
@@ -50,14 +51,22 @@ class TextTransactionTests(unittest.TestCase):
 
     def test_tab_indent_state_rolls_back_when_timer_registration_fails(self) -> None:
         target = text_editor_target(FakeText("变量", line=0, column=2))
-        with patched(self.text.safe_ops, "register_timer", lambda *_a, **_kw: False):
+        with patched(
+            self.text_indent.safe_ops,
+            "register_timer",
+            lambda *_a, **_kw: False,
+        ):
             self.assertFalse(self.text.schedule_tab_indent(target))
         self.assertEqual(self.runtime.state.tab_indent.count, 0)
         self.assertIsNone(self.runtime.state.tab_indent.target)
 
     def test_tab_indent_state_batches_when_timer_is_registered(self) -> None:
         target = text_editor_target(FakeText("变量", line=0, column=2))
-        with patched(self.text.safe_ops, "register_timer", lambda *_a, **_kw: True):
+        with patched(
+            self.text_indent.safe_ops,
+            "register_timer",
+            lambda *_a, **_kw: True,
+        ):
             self.assertTrue(self.text.schedule_tab_indent(target))
             self.assertTrue(self.text.schedule_tab_indent(target))
         self.assertEqual(self.runtime.state.tab_indent.count, 2)

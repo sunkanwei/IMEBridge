@@ -28,7 +28,7 @@
 ```powershell
 python tests/run.py quick
 python tests/run.py full
-python tests/run.py release --package C:\path\to\IMEBridge-0.1.0.zip
+python tests/run.py release --package C:\path\to\IMEBridge-0.2.0.zip
 ```
 
 `quick` 适合日常提交前运行：
@@ -45,9 +45,9 @@ python tests/run.py release --package C:\path\to\IMEBridge-0.1.0.zip
 
 ## 测试重点
 
-- `bridge/ime_guards.py`：确认空格物理序列、Caps Lock 直接 ASCII 输入、预编辑保护。
-- `bridge/message_router.py`：目标清理、IME 结果入队、Unicode 文本后的 Tab 缩进。
-- `targets/text.py`：Text Editor 事务、选区替换、Unicode 光标判断。
+- `bridge/ime_guards.py` 及其 focused guard 模块：确认空格物理序列、Caps Lock 直接 ASCII 输入、预编辑保护。
+- `bridge/message_router.py` 及 scope/activation 模块：目标清理、IME 结果入队、Unicode 文本后的 Tab 缩进。
+- `targets/text.py` 及其 focused Text 模块：Text Editor 事务、选区替换、Unicode 光标判断。
 - `bridge/font_commit.py`：3D Text 兜底提交、双路提交去重。
 - `bridge/ime_switch.py`：只恢复 IMEBridge 自己关闭过的窗口 IME 状态。
 - `blender_manifest.toml` 和发布 zip：生产源码清单完整，测试和本地文件不进入发布包。

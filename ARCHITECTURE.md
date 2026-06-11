@@ -15,7 +15,7 @@ buttons after installation.
   Blender's existing macOS `NSTextInputClient` view.
 - `win32/`: Win32, IMM32, window enumeration, and coordinate conversion.
 - `bridge/`: window hooks, message routing, IME scope switching,
-  positioning, and guards.
+  positioning, and small guard/scope state machines.
 - `targets/`: Blender target discovery plus Text Editor and 3D Text insertion.
 
 ## Input Flow
@@ -53,6 +53,9 @@ falls back to rebuilding the Text datablock when the operator cannot preserve
 the saved replacement semantics. Printable ASCII guards are limited to native
 IME conversion mode, so alphanumeric mode in Microsoft IME remains normal
 English input instead of being treated as leaked pinyin.
+The public `targets/text.py` module is a compatibility facade; position math,
+state capture, restore guards, deferred indentation, and commit transactions
+live in separate focused modules.
 
 The 3D Text path intentionally uses a different strategy. It suppresses the
 confirmation space at the Win32 message layer before Blender's native font edit

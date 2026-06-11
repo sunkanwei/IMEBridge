@@ -8,10 +8,12 @@ from . import ime_switch
 from . import ime_context
 from . import ime_guards
 from . import input_scope
+from . import message_keys
+from . import message_scope
+from . import text_area_activation
 from ..core import message_result
 from ..core import models
 from ..core import runtime
-from ..core import safe_ops
 from ..preferences import config
 from ..targets import detect as targets
 from ..targets import queue as insert_queue
@@ -19,302 +21,94 @@ from ..targets import state as target_state
 from ..targets import text as text_target
 from ..platforms import native as platform_api
 
-
-INPUT_SCOPE_TIMER_INTERVAL = 0.01
-TEXT_AREA_ACTIVATION_INTERVAL = 0.02
-TEXT_AREA_ACTIVATION_RETRY_LIMIT = 20
-
-
-def set_current_scope(scope: input_scope.InputScope) -> None:
-    """Store the last resolved Blender editor scope in one place."""
-    runtime.state.input_scope.current_kind = scope.kind
-    runtime.state.input_scope.current_area_type = input_scope.scope_area_type(scope)
-
-
-def set_neutral_scope() -> None:
-    """Leave bridge-owned input without making a new Blender area claim."""
-    runtime.state.input_scope.current_kind = input_scope.SCOPE_NEUTRAL
-    runtime.state.input_scope.current_area_type = ""
-
-
-def clear_native_text_ui_handoff() -> None:
-    """Release the temporary handoff to Blender's own text fields."""
-    runtime.state.input_scope.native_text_ui_handoff = False
-
-
-def target_area_type(target: object) -> str:
-    """Read the editor type from a resolved bridge target."""
-    area = getattr(target, "area", None)
-    return str(getattr(area, "type", "") or "")
-
-
-def text_datablock_key(text_data: object) -> int:
-    """Return a stable key for detecting Text Editor datablock changes."""
-    if text_data is None:
-        return 0
-    try:
-        return platform_api.ptr_value(text_data.as_pointer())
-    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
-        return 0
-
-
-def recent_font_target_from_state() -> object | None:
-    """Keep a just-committed 3D Text target through late IME messages."""
-    target = runtime.state.composition_target or runtime.state.active_target
-    if not models.is_font_edit_target(target):
-        return None
-    if not font_commit.is_recent_font_target(target):
-        return None
-    if targets.active_font_edit_object() != getattr(target, "obj", None):
-        return None
-    return target
-
-
-def clear_bridge_target_state() -> None:
-    """Forget only the target state owned by IMEBridge."""
-    target_state.clear_active_target()
-    runtime.state.composition_target = None
-    runtime.state.text_ime_session.end_current()
-    ime_guards.clear_ime_confirm_space()
-    ime_guards.clear_ime_direct_ascii()
-    text_target.cancel_tab_indent()
-    runtime.state.font_result_dedup.clear()
-
-
-def apply_enabled_scope(scope: input_scope.InputScope) -> None:
-    """Restore IMEBridge input for a supported Text or 3D Text target."""
-    if not targets.is_usable_input_target(scope.target):
-        return
-    target_state.set_active_target(scope.target)
-    ime_switch.restore_if_managed(scope.hwnd)
-    arming.request_auto_arm()
-    ime_context.update_ime_candidate_position(hwnd=scope.hwnd, target=scope.target)
-
-
-def apply_shortcut_scope(scope: input_scope.InputScope) -> None:
-    """Close the IME where Blender expects direct shortcut keystrokes."""
-    if refresh_scope_from_context(scope.hwnd):
-        return
-
-    clear_bridge_target_state()
-    if config.auto_english_on_shortcuts():
-        ime_switch.close_for_shortcut_surface(scope.hwnd)
-
-
-def apply_neutral_scope(scope: input_scope.InputScope) -> None:
-    """Step away from bridge-owned targets without touching native UI fields."""
-    clear_bridge_target_state()
-    ime_switch.restore_if_managed(scope.hwnd)
-
-
-def apply_input_scope(scope: input_scope.InputScope) -> None:
-    """Apply the latest click scope after Blender focus has settled."""
-    set_current_scope(scope)
-    if scope.kind == input_scope.SCOPE_ENABLED_TARGET:
-        apply_enabled_scope(scope)
-    elif scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
-        apply_shortcut_scope(scope)
-    else:
-        apply_neutral_scope(scope)
-
-
-def text_target_from_area_hit(hit: input_scope.AreaHit) -> object | None:
-    """Build a Text Editor target from a remembered area hit."""
-    try:
-        return targets.make_text_editor_target(
-            hit.window,
-            hit.area,
-            hit.region,
-            hit.space,
-        )
-    except (AttributeError, ReferenceError, RuntimeError):
-        return None
-
-
-def activate_text_area_hit(hit: input_scope.AreaHit, hwnd: object) -> bool:
-    """Activate a Text Editor area after Blender finishes a header action."""
-    target = text_target_from_area_hit(hit)
-    if not targets.is_usable_input_target(target):
-        return False
-
-    cancel_pending_scope_application()
-    apply_input_scope(
-        input_scope.InputScope(
-            input_scope.SCOPE_ENABLED_TARGET,
-            hwnd=hwnd,
-            target=target,
-            hit=hit,
-        )
-    )
-    return True
-
-
-def scope_target_from_context() -> object | None:
-    """Catch mode changes such as Tab entering 3D Text edit mode."""
-    current_kind = runtime.state.input_scope.current_kind
-    current_area_type = runtime.state.input_scope.current_area_type
-
-    if (
-        current_kind == input_scope.SCOPE_SHORTCUT_SURFACE
-        and current_area_type == "VIEW_3D"
-    ):
-        return targets.find_font_edit_target(bpy.context)
-
-    if current_kind != input_scope.SCOPE_SHORTCUT_SURFACE:
-        return targets.make_input_target_from_context(bpy.context)
-
-    return None
-
-
-def refresh_scope_from_context(hwnd: object) -> bool:
-    """Promote a stale shortcut scope when Blender now has a text target."""
-    if runtime.state.input_scope.native_text_ui_handoff:
-        return False
-
-    target = scope_target_from_context()
-    if target is None:
-        target = recent_font_target_from_state()
-    if not targets.is_usable_input_target(target):
-        return False
-
-    runtime.state.input_scope.current_kind = input_scope.SCOPE_ENABLED_TARGET
-    runtime.state.input_scope.current_area_type = target_area_type(target)
-    target_state.set_active_target(target)
-    ime_switch.restore_if_managed(hwnd)
-    return True
-
-
-def _apply_pending_input_scope() -> None:
-    """Timer callback used to keep native hooks out of heavier Blender work."""
-    if not runtime.state.input_scope.scope_timer_registered:
-        return None
-    runtime.state.input_scope.scope_timer_registered = False
-
-    scope = runtime.state.input_scope.pending_scope
-    runtime.state.input_scope.pending_scope = None
-    if scope is not None:
-        apply_input_scope(scope)
-    return None
-
-
-def schedule_input_scope_application(scope: input_scope.InputScope) -> None:
-    """Apply only the newest click when several arrive in quick succession."""
-    runtime.state.input_scope.pending_scope = scope
-    if runtime.state.input_scope.scope_timer_registered:
-        return
-    if safe_ops.register_timer(
-        _apply_pending_input_scope,
-        first_interval=INPUT_SCOPE_TIMER_INTERVAL,
-    ):
-        runtime.state.input_scope.scope_timer_registered = True
-
-
-def cancel_pending_scope_application() -> None:
-    """Drop delayed click-scope work without touching other timers."""
-    runtime.state.input_scope.pending_scope = None
-    runtime.state.input_scope.scope_timer_registered = False
-    safe_ops.unregister_timer(_apply_pending_input_scope)
-
-
-def pending_text_area_key() -> int:
-    """Read the current text key for the pending Text Editor area."""
-    hit = runtime.state.text_area_activation.hit
-    if hit is None:
-        return 0
-    try:
-        return text_datablock_key(getattr(hit.space, "text", None))
-    except (AttributeError, ReferenceError, RuntimeError):
-        return 0
-
-
-def try_activate_pending_text_area(
-    hwnd: object = None,
-    *,
-    unregister_timer: bool = True,
-) -> bool:
-    """Promote a header-created Text datablock into an active IME target."""
-    state = runtime.state.text_area_activation
-    hit = state.hit
-    if hit is None:
-        return False
-
-    current_key = pending_text_area_key()
-    if not current_key or current_key == state.previous_text_key:
-        return False
-
-    if not activate_text_area_hit(hit, hwnd or state.hwnd):
-        return False
-
-    state.clear()
-    if unregister_timer:
-        safe_ops.unregister_timer(_apply_pending_text_area_activation)
-    return True
-
-
-def _apply_pending_text_area_activation() -> float | None:
-    """Wait briefly for Text Editor header actions to update space.text."""
-    state = runtime.state.text_area_activation
-    if not state.timer_registered:
-        return None
-
-    if try_activate_pending_text_area(unregister_timer=False):
-        return None
-
-    state.attempts += 1
-    if state.attempts >= TEXT_AREA_ACTIVATION_RETRY_LIMIT:
-        state.clear()
-        return None
-    return TEXT_AREA_ACTIVATION_INTERVAL
-
-
-def schedule_text_area_activation(
-    hwnd: object,
-    hit: input_scope.AreaHit,
-) -> bool:
-    """Remember a Text Editor area while Blender creates or switches text."""
-    previous_key = text_datablock_key(getattr(hit.space, "text", None))
-    state = runtime.state.text_area_activation
-    state.hwnd = hwnd
-    state.hit = hit
-    state.previous_text_key = previous_key
-    state.attempts = 0
-
-    if state.timer_registered:
-        return True
-    if safe_ops.register_timer(
-        _apply_pending_text_area_activation,
-        first_interval=TEXT_AREA_ACTIVATION_INTERVAL,
-    ):
-        state.timer_registered = True
-        return True
-
-    state.clear()
-    return False
-
-
-def maybe_schedule_text_area_activation(
-    hwnd: object,
-    lparam: object,
-    scope: input_scope.InputScope,
-    allow_activation: bool,
-) -> bool:
-    """Track Text Editor header clicks that may create a new text target."""
-    if not allow_activation or scope.kind != input_scope.SCOPE_NEUTRAL:
-        cancel_pending_text_area_activation()
-        return False
-
-    hit = input_scope.text_editor_area_from_mouse_lparam(hwnd, lparam)
-    if hit is None:
-        cancel_pending_text_area_activation()
-        return False
-
-    return schedule_text_area_activation(hwnd, hit)
-
-
-def cancel_pending_text_area_activation() -> None:
-    """Drop delayed Text Editor activation work."""
-    runtime.state.text_area_activation.clear()
-    safe_ops.unregister_timer(_apply_pending_text_area_activation)
+ctrl_is_down = message_keys.ctrl_is_down
+alt_is_down = message_keys.alt_is_down
+shift_is_down = message_keys.shift_is_down
+opens_native_text_ui = message_keys.opens_native_text_ui
+is_supported_message = message_keys.is_supported_message
+is_bridge_ime_message = message_keys.is_bridge_ime_message
+
+INPUT_SCOPE_TIMER_INTERVAL = message_scope.INPUT_SCOPE_TIMER_INTERVAL
+TEXT_AREA_ACTIVATION_INTERVAL = text_area_activation.TEXT_AREA_ACTIVATION_INTERVAL
+TEXT_AREA_ACTIVATION_RETRY_LIMIT = (
+    text_area_activation.TEXT_AREA_ACTIVATION_RETRY_LIMIT
+)
+set_current_scope = message_scope.set_current_scope
+set_neutral_scope = message_scope.set_neutral_scope
+clear_native_text_ui_handoff = message_scope.clear_native_text_ui_handoff
+target_area_type = message_scope.target_area_type
+recent_font_target_from_state = message_scope.recent_font_target_from_state
+clear_bridge_target_state = message_scope.clear_bridge_target_state
+apply_enabled_scope = message_scope.apply_enabled_scope
+apply_shortcut_scope = message_scope.apply_shortcut_scope
+apply_neutral_scope = message_scope.apply_neutral_scope
+apply_input_scope = message_scope.apply_input_scope
+scope_target_from_context = message_scope.scope_target_from_context
+schedule_input_scope_application = message_scope.schedule_input_scope_application
+cancel_pending_scope_application = message_scope.cancel_pending_scope_application
+refresh_scope_from_context = message_scope.refresh_scope_from_context
+text_datablock_key = text_area_activation.text_datablock_key
+text_target_from_area_hit = text_area_activation.text_target_from_area_hit
+activate_text_area_hit = text_area_activation.activate_text_area_hit
+pending_text_area_key = text_area_activation.pending_text_area_key
+try_activate_pending_text_area = text_area_activation.try_activate_pending_text_area
+schedule_text_area_activation = text_area_activation.schedule_text_area_activation
+maybe_schedule_text_area_activation = (
+    text_area_activation.maybe_schedule_text_area_activation
+)
+cancel_pending_text_area_activation = (
+    text_area_activation.cancel_pending_text_area_activation
+)
+
+__all__ = (
+    "INPUT_SCOPE_TIMER_INTERVAL",
+    "TEXT_AREA_ACTIVATION_INTERVAL",
+    "TEXT_AREA_ACTIVATION_RETRY_LIMIT",
+    "set_current_scope",
+    "set_neutral_scope",
+    "clear_native_text_ui_handoff",
+    "target_area_type",
+    "text_datablock_key",
+    "recent_font_target_from_state",
+    "clear_bridge_target_state",
+    "apply_enabled_scope",
+    "apply_shortcut_scope",
+    "apply_neutral_scope",
+    "apply_input_scope",
+    "text_target_from_area_hit",
+    "activate_text_area_hit",
+    "scope_target_from_context",
+    "refresh_scope_from_context",
+    "schedule_input_scope_application",
+    "cancel_pending_scope_application",
+    "pending_text_area_key",
+    "try_activate_pending_text_area",
+    "schedule_text_area_activation",
+    "maybe_schedule_text_area_activation",
+    "cancel_pending_text_area_activation",
+    "cancel_pending_input_scope",
+    "handle_mouse_down",
+    "handle_mouse_message",
+    "handle_focus_message",
+    "ctrl_is_down",
+    "alt_is_down",
+    "shift_is_down",
+    "opens_native_text_ui",
+    "handle_native_text_ui_shortcut",
+    "handle_native_text_ui_release",
+    "handle_unicode_text_tab",
+    "is_supported_message",
+    "bridge_ime_allowed",
+    "is_bridge_ime_message",
+    "handle_out_of_scope_ime_message",
+    "resolve_input_target_from_state",
+    "handle_ime_start_composition",
+    "queue_ime_result",
+    "handle_ime_composition",
+    "handle_ime_end_composition",
+    "dispatch_ime_message",
+    "handle_window_message",
+)
 
 
 def cancel_pending_input_scope() -> None:
@@ -397,7 +191,7 @@ def handle_mouse_message(
 
 
 def handle_focus_message(win: object, msg_value: int, wparam: object) -> bool:
-    """Window focus loss makes any stored Blender text target suspicious."""
+    """Handle focus messages and tell the caller whether routing should stop."""
     if msg_value == win.WM_KILLFOCUS:
         set_neutral_scope()
         cancel_pending_input_scope()
@@ -409,32 +203,6 @@ def handle_focus_message(win: object, msg_value: int, wparam: object) -> bool:
         clear_bridge_target_state()
         return True
     return msg_value == win.WM_SETFOCUS
-
-
-def ctrl_is_down(win: object) -> bool:
-    """Check Ctrl without importing the keyboard guards into routing policy."""
-    return bool(win.user32.GetKeyState(win.VK_CONTROL) & 0x8000)
-
-
-def alt_is_down(win: object) -> bool:
-    """Alt usually belongs to menus, so Ctrl+Alt+F is not treated as find."""
-    return bool(win.user32.GetKeyState(win.VK_MENU) & 0x8000)
-
-
-def shift_is_down(win: object) -> bool:
-    """Shift+Tab still belongs to Blender's unindent shortcut."""
-    return bool(win.user32.GetKeyState(win.VK_SHIFT) & 0x8000)
-
-
-def opens_native_text_ui(win: object, msg_value: int, wparam: object) -> bool:
-    """Public shortcuts that hand focus to Blender's own text fields."""
-    if msg_value != win.WM_KEYDOWN:
-        return False
-
-    key = platform_api.ptr_value(wparam)
-    if key in {win.VK_F2, win.VK_F3}:
-        return True
-    return key == ord("F") and ctrl_is_down(win) and not alt_is_down(win)
 
 
 def handle_native_text_ui_shortcut(
@@ -512,32 +280,6 @@ def handle_unicode_text_tab(
     return 0
 
 
-def is_supported_message(win: object, msg_value: int) -> bool:
-    """Ignore the native message noise the bridge never handles."""
-    return msg_value in {
-        win.WM_SETFOCUS,
-        win.WM_KILLFOCUS,
-        win.WM_ACTIVATEAPP,
-        win.WM_INPUT,
-        win.WM_LBUTTONDOWN,
-        win.WM_LBUTTONDBLCLK,
-        win.WM_RBUTTONDOWN,
-        win.WM_RBUTTONDBLCLK,
-        win.WM_MBUTTONDOWN,
-        win.WM_MBUTTONDBLCLK,
-        win.WM_KEYDOWN,
-        win.WM_KEYUP,
-        win.WM_CHAR,
-        win.WM_IME_CHAR,
-        win.WM_IME_KEYDOWN,
-        win.WM_IME_KEYUP,
-        win.WM_IME_REQUEST,
-        win.WM_IME_STARTCOMPOSITION,
-        win.WM_IME_COMPOSITION,
-        win.WM_IME_ENDCOMPOSITION,
-    }
-
-
 def bridge_ime_allowed() -> bool:
     """Keep IMEBridge away from native Blender UI text fields."""
     if runtime.state.input_scope.native_text_ui_handoff:
@@ -550,19 +292,6 @@ def bridge_ime_allowed() -> bool:
         target = runtime.state.composition_target or runtime.state.active_target
         return targets.is_usable_input_target(target)
     return targets.is_usable_input_target(runtime.state.active_target)
-
-
-def is_bridge_ime_message(win: object, msg_value: int) -> bool:
-    """Messages that can otherwise leak into stale bridge targets."""
-    return msg_value in {
-        win.WM_IME_CHAR,
-        win.WM_IME_KEYDOWN,
-        win.WM_IME_KEYUP,
-        win.WM_IME_REQUEST,
-        win.WM_IME_STARTCOMPOSITION,
-        win.WM_IME_COMPOSITION,
-        win.WM_IME_ENDCOMPOSITION,
-    }
 
 
 def handle_out_of_scope_ime_message(
@@ -712,7 +441,8 @@ def handle_window_message(
     if handle_native_text_ui_shortcut(win, hwnd, msg_value, wparam):
         return message_result.MessageResult.pass_through()
 
-    handle_native_text_ui_release(win, msg_value, wparam)
+    if handle_native_text_ui_release(win, msg_value, wparam):
+        return message_result.MessageResult.pass_through()
 
     refresh_scope_from_context(hwnd)
     if is_bridge_ime_message(win, msg_value):

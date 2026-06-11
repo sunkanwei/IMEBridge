@@ -78,4 +78,4 @@
 
 ## 📄 开源协议
 
-本插件采用 [GPL-3.0-or-later](file:///Users/sunkanwei/Library/Application%20Support/Blender/5.1/extensions/user_default/IMEBridge/LICENSE) 开源许可协议发布。您可以自由地使用、修改和分发。
+本插件采用 [GPL-3.0-or-later](https://www.gnu.org/licenses/gpl-3.0.html) 开源许可协议发布。您可以自由地使用、修改和分发。

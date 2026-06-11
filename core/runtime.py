@@ -13,11 +13,15 @@ class ImeConfirmSpaceState:
 
     hwnd: int = 0
     until: float = 0.0
+    released: bool = False
+    char_seen: bool = False
 
     def clear(self) -> None:
         """Drop any pending IME confirmation Space sequence."""
         self.hwnd = 0
         self.until = 0.0
+        self.released = False
+        self.char_seen = False
 
 
 @dataclass

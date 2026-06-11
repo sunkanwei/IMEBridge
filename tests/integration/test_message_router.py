@@ -18,6 +18,8 @@ class MessageRouterTests(unittest.TestCase):
         self.runtime.state.ime_confirm_space.hwnd = 1
         self.runtime.state.ime_direct_ascii.hwnd = 2
         self.runtime.state.ime_direct_ascii.pending_chars = 1
+        self.runtime.state.text_restore_guard = object()
+        self.runtime.state.text_restore_timer_registered = True
         self.runtime.state.tab_indent.count = 1
 
         self.router.clear_bridge_target_state()
@@ -26,6 +28,8 @@ class MessageRouterTests(unittest.TestCase):
         self.assertIsNone(self.runtime.state.composition_target)
         self.assertEqual(self.runtime.state.ime_confirm_space.hwnd, 0)
         self.assertEqual(self.runtime.state.ime_direct_ascii.hwnd, 0)
+        self.assertIsNone(self.runtime.state.text_restore_guard)
+        self.assertFalse(self.runtime.state.text_restore_timer_registered)
         self.assertEqual(self.runtime.state.tab_indent.count, 0)
 
     def test_queue_ime_result_uses_current_queue_signature(self) -> None:

@@ -316,24 +316,6 @@ def text_editor_area_from_mouse_lparam(
     return text_editor_area_hit_at_client_point(hwnd, client_x, client_y)
 
 
-def from_event(context: object, event: object, hwnd: object = None) -> InputScope:
-    """Resolve a public Blender event into an IMEBridge input scope."""
-    try:
-        window_x = int(event.mouse_x)
-        window_y = int(event.mouse_y)
-    except (AttributeError, TypeError, ValueError):
-        return InputScope(SCOPE_NEUTRAL, hwnd=hwnd)
-
-    return classify_hit(
-        hwnd,
-        area_hit_at_window_point(
-            window_x,
-            window_y,
-            getattr(context, "window", None),
-        ),
-    )
-
-
 def scope_area_type(scope: InputScope) -> str:
     """Expose the editor type without leaking AreaHit details to callers."""
     if scope.hit is None:
