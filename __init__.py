@@ -16,7 +16,7 @@ def _unregister_classes(classes: tuple[type, ...] | list[type]) -> None:
     for cls in reversed(classes):
         try:
             bpy.utils.unregister_class(cls)
-        except RuntimeError:
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
             continue
 
 
@@ -25,6 +25,7 @@ def register() -> None:
     registered_classes = []
     try:
         i18n.register()
+        _unregister_classes(_REGISTERED_CLASSES)
         for cls in _REGISTERED_CLASSES:
             bpy.utils.register_class(cls)
             registered_classes.append(cls)
