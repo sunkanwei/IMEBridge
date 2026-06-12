@@ -39,12 +39,8 @@ RECT = Rect
 POINT = Point
 
 
-class DWord:
-    """Tiny value holder matching the attribute shape of a DWORD."""
-
-    def __init__(self, value: int = 0) -> None:
-        """Store the value the same way ctypes scalar objects do."""
-        self.value = int(value)
+class DWord(ctypes.c_ulong):
+    """ctypes-compatible value holder matching the shape of a DWORD."""
 
 
 DWORD = DWord
@@ -430,12 +426,17 @@ def end_ime() -> bool:
 def install_text_commit_hook(
     commit_handler: object,
     ime_allowed_callback: object = None,
+    bridge_owner_callback: object = None,
 ) -> int:
     """Install the backend hook that mirrors committed Cocoa IME text."""
     api = ensure()
     if api is None:
         return 0
-    return api.install_insert_text_hook(commit_handler, ime_allowed_callback)
+    return api.install_insert_text_hook(
+        commit_handler,
+        ime_allowed_callback,
+        bridge_owner_callback,
+    )
 
 
 def uninstall_text_commit_hook() -> int:

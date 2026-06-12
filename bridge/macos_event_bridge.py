@@ -166,6 +166,7 @@ def target_from_context(context: object = None) -> object | None:
             target = input_scope.enabled_target_from_hit(hit)
             if targets.is_usable_input_target(target):
                 return target
+        return None
 
     target = targets.make_input_target_from_context(context)
     if target is not None:
@@ -247,6 +248,14 @@ def handle_committed_text(text: str) -> bool:
     return True
 
 
+def owns_ime_session() -> bool:
+    """Return whether IMEBridge should own the current Cocoa input session."""
+    if not _RUNNING:
+        return False
+    target = target_from_context(bpy.context)
+    return targets.is_usable_input_target(target)
+
+
 def _target_poll_timer() -> float | None:
     """Keep macOS target and candidate state aligned with Blender focus."""
     global _TIMER_REGISTERED
@@ -264,6 +273,7 @@ def _target_poll_timer() -> float | None:
 
     is_shortcut = False
     is_editing_3d_text = False
+    is_neutral = False
 
     pointer_scope = pointer_hit_scope(context, api)
     if pointer_scope is not None:
@@ -274,6 +284,8 @@ def _target_poll_timer() -> float | None:
                 is_editing_3d_text = (
                     targets.font_object_for_ime(context, require_edit=True) is not None
                 )
+        elif scope.kind == input_scope.SCOPE_NEUTRAL:
+            is_neutral = True
 
     if is_shortcut and not is_editing_3d_text:
         clear_bridge_target_state()
@@ -284,12 +296,15 @@ def _target_poll_timer() -> float | None:
     target = target_from_context(context)
     if targets.is_usable_input_target(target):
         activate_target(target, hwnd)
+    elif is_neutral:
+        if runtime.state.active_target is not None:
+            clear_bridge_target_state()
+            end_ime()
     elif targets.is_usable_input_target(runtime.state.active_target):
         update_candidate(runtime.state.active_target, hwnd)
     elif runtime.state.active_target is not None:
         clear_bridge_target_state()
-        if config.auto_english_on_shortcuts():
-            end_ime()
+        end_ime()
 
     return TARGET_POLL_INTERVAL
 
@@ -315,7 +330,9 @@ def start(insert_on_commit: bool = False) -> int:
 
     runtime.state.insert_on_commit = bool(insert_on_commit)
     install_hook = getattr(platform_api, "install_text_commit_hook", None)
-    installed = int(install_hook(handle_committed_text, is_ime_allowed)) if callable(install_hook) else 0
+    installed = int(
+        install_hook(handle_committed_text, is_ime_allowed, owns_ime_session)
+    ) if callable(install_hook) else 0
     if installed <= 0:
         return 0
 

@@ -17,6 +17,12 @@ class MacOSEventBridgeTests(unittest.TestCase):
             hit=SimpleNamespace(area=SimpleNamespace(type="NODE_EDITOR")),
         )
 
+    def neutral_scope(self) -> object:
+        return self.input_scope.InputScope(
+            self.input_scope.SCOPE_NEUTRAL,
+            hit=SimpleNamespace(area=SimpleNamespace(type="PREFERENCES")),
+        )
+
     def install_shortcut_hit(self):
         api = SimpleNamespace(
             mouse_location=lambda: SimpleNamespace(x=10, y=20),
@@ -201,6 +207,89 @@ class MacOSEventBridgeTests(unittest.TestCase):
                                         )
 
         self.assertEqual(queued, [("中", target)])
+
+    def test_neutral_pointer_scope_does_not_rebind_visible_text_editor(self) -> None:
+        api = SimpleNamespace(
+            mouse_location=lambda: SimpleNamespace(x=10, y=20),
+        )
+        hit = SimpleNamespace(area=SimpleNamespace(type="PREFERENCES"))
+        stale_target = text_editor_target()
+
+        with patched(self.bridge.platform_api, "ensure", lambda: api):
+            with patched(
+                self.bridge.input_scope,
+                "area_hit_at_window_point",
+                lambda *_args: hit,
+            ):
+                with patched(
+                    self.bridge.input_scope,
+                    "classify_hit",
+                    lambda *_args: self.neutral_scope(),
+                ):
+                    with patched(
+                        self.bridge.targets,
+                        "find_text_editor_target",
+                        lambda *_args: stale_target,
+                    ):
+                        self.assertIsNone(self.bridge.target_from_context())
+
+    def test_neutral_poll_releases_stale_bridge_target(self) -> None:
+        api = SimpleNamespace(
+            mouse_location=lambda: SimpleNamespace(x=10, y=20),
+        )
+        hit = SimpleNamespace(area=SimpleNamespace(type="PREFERENCES"))
+        target = text_editor_target()
+        ended: list[bool] = []
+        cleared: list[bool] = []
+        self.bridge.runtime.state.active_target = target
+
+        with patched(self.bridge.platform_api, "ensure", lambda: api):
+            with patched(
+                self.bridge.input_scope,
+                "area_hit_at_window_point",
+                lambda *_args: hit,
+            ):
+                with patched(
+                    self.bridge.input_scope,
+                    "classify_hit",
+                    lambda *_args: self.neutral_scope(),
+                ):
+                    with patched(self.bridge, "_RUNNING", True):
+                        with patched(self.bridge, "active_hwnd", lambda: 44):
+                            with patched(
+                                self.bridge.targets,
+                                "is_usable_input_target",
+                                lambda item: item is target,
+                            ):
+                                with patched(
+                                    self.bridge,
+                                    "clear_bridge_target_state",
+                                    lambda: cleared.append(True),
+                                ):
+                                    with patched(
+                                        self.bridge,
+                                        "end_ime",
+                                        lambda: ended.append(True) or True,
+                                    ):
+                                        self.assertEqual(
+                                            self.bridge._target_poll_timer(),
+                                            self.bridge.TARGET_POLL_INTERVAL,
+                                        )
+
+        self.assertEqual(cleared, [True])
+        self.assertEqual(ended, [True])
+
+    def test_owns_ime_session_requires_live_bridge_target(self) -> None:
+        target = text_editor_target()
+
+        with patched(self.bridge, "_RUNNING", True):
+            with patched(self.bridge, "target_from_context", lambda *_args: target):
+                with patched(
+                    self.bridge.targets,
+                    "is_usable_input_target",
+                    lambda item: item is target,
+                ):
+                    self.assertTrue(self.bridge.owns_ime_session())
 
 
 if __name__ == "__main__":

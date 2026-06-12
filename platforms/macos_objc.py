@@ -118,9 +118,13 @@ class ObjC:
         self.begin_ime = self.sel("beginIME:y:w:h:completed:")
         self.end_ime = self.sel("endIME")
         self.insert_text = self.sel("insertText:replacementRange:")
+        self.set_marked_text = self.sel(
+            "setMarkedText:selectedRange:replacementRange:"
+        )
         self.input_context = self.sel("inputContext")
         self.string = self.sel("string")
         self.unmark_text = self.sel("unmarkText")
+        self.discard_marked_text = self.sel("discardMarkedText")
         self.utf8_string = self.sel("UTF8String")
 
     def cls(self, name: str) -> int:

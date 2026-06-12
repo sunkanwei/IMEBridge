@@ -24,13 +24,14 @@ During registration, the add-on schedules automatic enablement only when the
 selected native backend reports that it supports a real bridge. The Windows
 backend restores IME contexts for Blender windows, installs a system-managed
 subclass callback on the main GHOST window, and routes supported Win32 and IME
-messages through Blender-aware target handling. The macOS backend installs a
-Cocoa `insertText:replacementRange:`
-callback on Blender's text-input views, mirrors committed text into the shared
-insertion queue, and uses Blender's Cocoa view `beginIME` / `endIME` entry
-points for IME focus and candidate placement. Unsupported platforms use the
-no-op backend so registration, preferences, and cleanup stay safe without
-pretending input is handled.
+messages through Blender-aware target handling. The macOS backend observes
+Cocoa text-input callbacks on Blender's text-input views, lets native marked
+text drive candidate UI, mirrors committed text into the shared insertion
+queue, then clears Blender's native composition state without committing the
+same result into unrelated UI fields. It uses Blender's Cocoa view `beginIME` /
+`endIME` entry points for IME focus and candidate placement. Unsupported
+platforms use the no-op backend so registration, preferences, and cleanup stay
+safe without pretending input is handled.
 
 Mouse clicks are classified into three scopes: supported text targets,
 shortcut-heavy editor canvases, and neutral UI. Supported targets keep IMEBridge

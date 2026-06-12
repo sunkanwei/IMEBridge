@@ -1,5 +1,6 @@
 """No-op native backend used before a platform has a real bridge."""
 
+import ctypes
 from dataclasses import dataclass
 
 
@@ -28,12 +29,8 @@ RECT = Rect
 POINT = Point
 
 
-class DWord:
-    """Tiny value holder matching the attribute shape of a DWORD."""
-
-    def __init__(self, value: int = 0) -> None:
-        """Store the value the same way ctypes scalar objects do."""
-        self.value = int(value)
+class DWord(ctypes.c_ulong):
+    """ctypes-compatible value holder matching the shape of a DWORD."""
 
 
 DWORD = DWord
