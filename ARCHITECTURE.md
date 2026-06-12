@@ -34,13 +34,15 @@ pretending input is handled.
 
 Mouse clicks are classified into three scopes: supported text targets,
 shortcut-heavy editor canvases, and neutral UI. Supported targets keep IMEBridge
-active. Shortcut canvases temporarily close or end the backend-owned IME focus
-so Blender shortcuts remain direct input. The Windows backend records the IME
-open flag plus conversion and sentence modes before this plugin-driven close,
-then restores the recorded state when a supported text target becomes active
-again. The macOS backend ends the Cocoa IME session without switching the user's
-system input source. Neutral UI clears IMEBridge targets and undoes any
-plugin-driven close, but does not guess at Blender's native text widgets.
+active. Shortcut canvases always clear stale bridge-owned text targets; when the
+shortcut IME avoidance preference is enabled, they also temporarily close or end the
+backend-owned IME focus so Blender shortcuts remain direct input. The Windows
+backend records the IME open flag plus conversion and sentence modes before this
+plugin-driven close, then restores the recorded state when a supported text
+target becomes active again or when the preference is disabled. The macOS backend
+ends the Cocoa IME session without switching the user's system input source.
+Neutral UI clears IMEBridge targets and undoes any plugin-driven close, but does
+not guess at Blender's native text widgets.
 Shortcuts that open Blender's own text UI, such as search, rename, and Text
 Editor find, are treated as neutral before Blender handles them.
 Known add-on surfaces such as NexusUI are also classified as neutral before the

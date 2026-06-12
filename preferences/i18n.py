@@ -119,27 +119,51 @@ MESSAGES = {
         "hi_IN": "इनपुट मोड",
         "ar_EG": "وضع الإدخال",
     },
-    "Automatic English on Shortcut Surfaces": {
-        "en_US": "Automatic English on Shortcut Surfaces",
-        "zh_HANS": "快捷键区域自动英文",
-        "zh_HANT": "快捷鍵區域自動英文",
-        "ja_JP": "ショートカット領域で自動英字入力",
-        "ko_KR": "단축키 영역에서 자동 영어 입력",
-        "vi_VN": "Tự chuyển sang tiếng Anh ở vùng phím tắt",
-        "th_TH": "อังกฤษอัตโนมัติในพื้นที่ทางลัด",
-        "hi_IN": "शॉर्टकट क्षेत्रों में स्वतः अंग्रेज़ी",
-        "ar_EG": "الإنجليزية تلقائيًا في مناطق الاختصارات",
+    "Shortcut IME Avoidance (Experimental)": {
+        "en_US": "Shortcut IME Avoidance (Experimental)",
+        "zh_HANS": "快捷键避让（实验）",
+        "zh_HANT": "快捷鍵避讓（實驗）",
+        "ja_JP": "ショートカットIME回避（実験）",
+        "ko_KR": "단축키 IME 회피(실험)",
+        "vi_VN": "Né IME phím tắt (thử nghiệm)",
+        "th_TH": "หลีกเลี่ยง IME สำหรับปุ่มลัด (ทดลอง)",
+        "hi_IN": "शॉर्टकट IME परिहार (प्रयोगात्मक)",
+        "ar_EG": "تجنب IME للاختصارات (تجريبي)",
     },
-    "Close IME on shortcut-heavy editor canvases": {
-        "en_US": "Close IME on shortcut-heavy editor canvases",
-        "zh_HANS": "点击依赖快捷键的编辑器画布时关闭当前窗口 IME",
-        "zh_HANT": "點擊依賴快捷鍵的編輯器畫布時關閉目前視窗 IME",
-        "ja_JP": "ショートカット中心の編集キャンバスでは IME を閉じます",
-        "ko_KR": "단축키 중심 편집 캔버스에서 IME를 닫습니다",
-        "vi_VN": "Đóng IME trên các vùng biên tập dùng nhiều phím tắt",
-        "th_TH": "ปิด IME บนพื้นที่แก้ไขที่ใช้ปุ่มลัดเป็นหลัก",
-        "hi_IN": "शॉर्टकट-प्रधान संपादक कैनवास पर IME बंद करें",
-        "ar_EG": "إغلاق IME في مساحات التحرير المعتمدة على الاختصارات",
+    (
+        "Temporarily close this window's IME state on shortcut-heavy "
+        "surfaces; some IMEs may not work"
+    ): {
+        "en_US": (
+            "Temporarily close this window's IME state on shortcut-heavy "
+            "surfaces; some IMEs may not work"
+        ),
+        "zh_HANS": "在快捷键密集区域临时关闭当前窗口输入法状态；部分输入法可能无效。",
+        "zh_HANT": "在快捷鍵密集區域暫時關閉目前視窗輸入法狀態；部分輸入法可能無效。",
+        "ja_JP": (
+            "ショートカット中心の領域では、このウィンドウのIME状態を一時的に"
+            "閉じます。一部のIMEでは機能しない場合があります。"
+        ),
+        "ko_KR": (
+            "단축키가 많은 영역에서 현재 창의 IME 상태를 임시로 닫습니다. "
+            "일부 IME에서는 동작하지 않을 수 있습니다."
+        ),
+        "vi_VN": (
+            "Tạm thời đóng trạng thái IME của cửa sổ này trên các vùng dùng "
+            "nhiều phím tắt; một số IME có thể không hoạt động."
+        ),
+        "th_TH": (
+            "ปิดสถานะ IME ของหน้าต่างนี้ชั่วคราวในพื้นที่ที่ใช้ปุ่มลัดเป็นหลัก; "
+            "IME บางตัวอาจไม่ทำงาน"
+        ),
+        "hi_IN": (
+            "शॉर्टकट-प्रधान क्षेत्रों में इस विंडो की IME स्थिति अस्थायी रूप "
+            "से बंद करें; कुछ IME काम नहीं कर सकते।"
+        ),
+        "ar_EG": (
+            "إغلاق حالة IME لهذه النافذة مؤقتًا في المناطق المعتمدة على "
+            "الاختصارات؛ قد لا تعمل بعض طرق الإدخال."
+        ),
     },
     "Candidate box X offset in screen pixels": {
         "en_US": "Candidate box X offset in screen pixels",

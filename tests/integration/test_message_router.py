@@ -14,6 +14,7 @@ class MessageRouterTests(unittest.TestCase):
         self.font_restore = import_bridge_module("targets.font_restore")
         self.text = import_bridge_module("targets.text")
         self.win = FakeWin()
+        self.message_scope = import_bridge_module("bridge.message_scope")
 
     def test_clear_bridge_target_state_clears_recent_guard_state(self) -> None:
         self.runtime.state.active_target = object()
@@ -140,6 +141,67 @@ class MessageRouterTests(unittest.TestCase):
                 lambda item: item is target,
             ):
                 self.assertTrue(self.router.bridge_ime_allowed())
+
+    def test_shortcut_scope_does_not_close_ime_when_auto_english_is_disabled(
+        self,
+    ) -> None:
+        scope = self.router.input_scope.InputScope(
+            self.router.input_scope.SCOPE_SHORTCUT_SURFACE,
+            hwnd=44,
+        )
+        closed: list[object] = []
+        cleared: list[object] = []
+
+        with patched(
+            self.message_scope,
+            "refresh_scope_from_context",
+            lambda *_args: False,
+        ):
+            with patched(
+                self.message_scope,
+                "clear_bridge_target_state",
+                lambda hwnd=None: cleared.append(hwnd),
+            ):
+                with patched(
+                    self.message_scope.config,
+                    "auto_english_on_shortcuts",
+                    lambda: False,
+                ):
+                    with patched(
+                        self.message_scope.ime_switch,
+                        "close_for_shortcut_surface",
+                        lambda hwnd: closed.append(hwnd) or True,
+                    ):
+                        self.message_scope.apply_shortcut_scope(scope)
+
+        self.assertEqual(cleared, [44])
+        self.assertEqual(closed, [])
+
+    def test_shortcut_ime_message_passes_when_auto_english_is_disabled(self) -> None:
+        closed: list[object] = []
+        self.runtime.state.input_scope.current_kind = (
+            self.router.input_scope.SCOPE_SHORTCUT_SURFACE
+        )
+
+        with patched(self.router, "refresh_scope_from_context", lambda *_args: False):
+            with patched(
+                self.router.config,
+                "auto_english_on_shortcuts",
+                lambda: False,
+            ):
+                with patched(
+                    self.router.ime_switch,
+                    "close_for_shortcut_surface",
+                    lambda hwnd: closed.append(hwnd) or True,
+                ):
+                    result = self.router.handle_out_of_scope_ime_message(
+                        self.win,
+                        44,
+                        self.win.WM_IME_STARTCOMPOSITION,
+                    )
+
+        self.assertFalse(result.handled)
+        self.assertEqual(closed, [])
 
     def test_queue_ime_result_uses_recent_session_after_end_and_leaked_space(self) -> None:
         text_data = FakeText("", line=0, column=0)

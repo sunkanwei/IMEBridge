@@ -11,6 +11,7 @@ from . import input_scope
 from ..core import models
 from ..core import runtime
 from ..core import safe_ops
+from ..preferences import config
 from ..targets import detect as targets
 from ..targets import font_restore
 from ..targets import queue as insert_queue
@@ -102,27 +103,46 @@ def activate_target(target: object, hwnd: object = None) -> bool:
     return True
 
 
-def is_ime_allowed() -> bool:
-    """Return whether the current active Blender area should allow IME input."""
-    api = platform_api.ensure()
+def pointer_hit_scope(
+    context: object = None,
+    api: object = None,
+) -> tuple[object, input_scope.InputScope] | None:
+    """Resolve the Blender area and input scope under the macOS pointer."""
+    context = context or bpy.context
+    api = api or platform_api.ensure()
     if api is None:
-        return True
+        return None
 
     pt = getattr(api, "mouse_location", None)
     if not callable(pt):
-        return True
+        return None
 
     loc = pt()
     if loc is None:
-        return True
+        return None
 
-    window = getattr(bpy.context, "window", None)
-    hit = input_scope.area_hit_at_window_point(loc.x, loc.y, window)
+    hit = input_scope.area_hit_at_window_point(
+        loc.x,
+        loc.y,
+        getattr(context, "window", None),
+    )
     if hit is None:
+        return None
+
+    return hit, input_scope.classify_hit(None, hit)
+
+
+def is_ime_allowed() -> bool:
+    """Return whether the current active Blender area should allow IME input."""
+    pointer_scope = pointer_hit_scope(bpy.context)
+    if pointer_scope is None:
         return True
 
-    scope = input_scope.classify_hit(None, hit)
-    if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
+    _hit, scope = pointer_scope
+    if (
+        scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE
+        and config.auto_english_on_shortcuts()
+    ):
         return False
 
     return True
@@ -135,21 +155,17 @@ def target_from_context(context: object = None) -> object | None:
     if api is None:
         return None
 
-    pt = getattr(api, "mouse_location", None)
-    if callable(pt):
-        loc = pt()
-        if loc is not None:
-            hit = input_scope.area_hit_at_window_point(loc.x, loc.y, context.window)
-            if hit is not None:
-                scope = input_scope.classify_hit(None, hit)
-                if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
-                    if hit.area.type == "VIEW_3D":
-                        return targets.find_font_edit_target(context)
-                    return None
-                elif scope.kind == input_scope.SCOPE_ENABLED_TARGET:
-                    target = input_scope.enabled_target_from_hit(hit)
-                    if targets.is_usable_input_target(target):
-                        return target
+    pointer_scope = pointer_hit_scope(context, api)
+    if pointer_scope is not None:
+        hit, scope = pointer_scope
+        if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
+            if hit.area.type == "VIEW_3D":
+                return targets.find_font_edit_target(context)
+            return None
+        if scope.kind == input_scope.SCOPE_ENABLED_TARGET:
+            target = input_scope.enabled_target_from_hit(hit)
+            if targets.is_usable_input_target(target):
+                return target
 
     target = targets.make_input_target_from_context(context)
     if target is not None:
@@ -158,6 +174,22 @@ def target_from_context(context: object = None) -> object | None:
     if target is not None:
         return target
     return targets.find_text_editor_target(context)
+
+
+def pointer_on_shortcut_surface(context: object = None) -> bool:
+    """Return whether Cocoa text commits should avoid stale bridge targets."""
+    pointer_scope = pointer_hit_scope(context)
+    if pointer_scope is None:
+        return False
+
+    context = context or bpy.context
+    hit, scope = pointer_scope
+    if scope.kind != input_scope.SCOPE_SHORTCUT_SURFACE:
+        return False
+
+    if hit.area.type == "VIEW_3D":
+        return targets.font_object_for_ime(context, require_edit=True) is None
+    return True
 
 
 def refresh_target_from_context(
@@ -186,6 +218,8 @@ def resolve_commit_target() -> object | None:
 def handle_committed_text(text: str) -> bool:
     """Queue committed Cocoa IME text into the existing insertion path."""
     if not _RUNNING or not text:
+        return False
+    if pointer_on_shortcut_surface(bpy.context):
         return False
 
     hwnd = active_hwnd()
@@ -231,23 +265,20 @@ def _target_poll_timer() -> float | None:
     is_shortcut = False
     is_editing_3d_text = False
 
-    pt = getattr(api, "mouse_location", None)
-    if callable(pt):
-        loc = pt()
-        if loc is not None:
-            hit = input_scope.area_hit_at_window_point(loc.x, loc.y, context.window)
-            if hit is not None:
-                scope = input_scope.classify_hit(None, hit)
-                if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
-                    is_shortcut = True
-                    if hit.area.type == "VIEW_3D":
-                        if targets.font_object_for_ime(context, require_edit=True) is not None:
-                            is_editing_3d_text = True
+    pointer_scope = pointer_hit_scope(context, api)
+    if pointer_scope is not None:
+        hit, scope = pointer_scope
+        if scope.kind == input_scope.SCOPE_SHORTCUT_SURFACE:
+            is_shortcut = True
+            if hit.area.type == "VIEW_3D":
+                is_editing_3d_text = (
+                    targets.font_object_for_ime(context, require_edit=True) is not None
+                )
 
     if is_shortcut and not is_editing_3d_text:
-        # Force clear active target and end IME on shortcut surfaces
         clear_bridge_target_state()
-        end_ime()
+        if config.auto_english_on_shortcuts():
+            end_ime()
         return TARGET_POLL_INTERVAL
 
     target = target_from_context(context)
@@ -257,7 +288,8 @@ def _target_poll_timer() -> float | None:
         update_candidate(runtime.state.active_target, hwnd)
     elif runtime.state.active_target is not None:
         clear_bridge_target_state()
-        end_ime()
+        if config.auto_english_on_shortcuts():
+            end_ime()
 
     return TARGET_POLL_INTERVAL
 

@@ -20,7 +20,37 @@ DEFAULT_X_OFFSET = -30
 DEFAULT_Y_OFFSET = -30
 DEFAULT_ADD_REQUESTED_CHAR_OFFSET = False
 DEFAULT_PREPOSITION_CANDIDATE = True
-DEFAULT_AUTO_ENGLISH_ON_SHORTCUTS = True
+DEFAULT_AUTO_ENGLISH_ON_SHORTCUTS = False
+
+
+def _restore_managed_shortcut_ime_when_disabled(
+    preferences: object,
+    _context: object,
+) -> None:
+    """Undo plugin-driven shortcut IME closes when the feature is disabled."""
+    enabled = bool(
+        getattr(
+            preferences,
+            "ime_bridge_auto_english_on_shortcuts",
+            DEFAULT_AUTO_ENGLISH_ON_SHORTCUTS,
+        )
+    )
+    if enabled:
+        return
+
+    try:
+        from ..bridge import ime_switch
+
+        ime_switch.restore_all_managed()
+    except (
+        AttributeError,
+        ImportError,
+        ReferenceError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ):
+        return
 
 
 class IMEBridgePreferences(bpy.types.AddonPreferences):
@@ -64,9 +94,13 @@ class IMEBridgePreferences(bpy.types.AddonPreferences):
         default=DEFAULT_PREPOSITION_CANDIDATE,
     )
     ime_bridge_auto_english_on_shortcuts: bpy.props.BoolProperty(
-        name="Automatic English on Shortcut Surfaces",
-        description="Close IME on shortcut-heavy editor canvases",
+        name="Shortcut IME Avoidance (Experimental)",
+        description=(
+            "Temporarily close this window's IME state on shortcut-heavy "
+            "surfaces; some IMEs may not work"
+        ),
         default=DEFAULT_AUTO_ENGLISH_ON_SHORTCUTS,
+        update=_restore_managed_shortcut_ime_when_disabled,
     )
 
     def draw(self, _context: object) -> None:
@@ -95,7 +129,7 @@ class IMEBridgePreferences(bpy.types.AddonPreferences):
         col.prop(
             self,
             "ime_bridge_auto_english_on_shortcuts",
-            text=i18n.text("Automatic English on Shortcut Surfaces", self),
+            text=i18n.text("Shortcut IME Avoidance (Experimental)", self),
         )
 
 
