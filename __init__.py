@@ -6,44 +6,25 @@ from .preferences import config
 from .preferences import i18n
 
 
-_REGISTERED_CLASSES = (
+classes = (
     config.IMEBridgePreferences,
 )
 
 
-def _unregister_classes(classes: tuple[type, ...] | list[type]) -> None:
-    """Blender may leave us half-registered after a failed reload."""
-    for cls in reversed(classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
-            continue
-
-
 def register() -> None:
-    """Set up the bridge, and unwind cleanly if any Blender step refuses."""
-    registered_classes = []
-    try:
-        i18n.register()
-        _unregister_classes(_REGISTERED_CLASSES)
-        for cls in _REGISTERED_CLASSES:
-            bpy.utils.register_class(cls)
-            registered_classes.append(cls)
-        ime_context.register_text_draw_handler()
-        window_hook.schedule_auto_enable()
-    except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError):
-        window_hook.cancel_auto_enable()
-        ime_context.unregister_text_draw_handler()
-        window_hook.stop_hooks()
-        _unregister_classes(registered_classes)
-        i18n.unregister()
-        raise
+    """Register Blender classes and start the IME bridge runtime."""
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    i18n.register()
+    ime_context.register_text_draw_handler()
+    window_hook.schedule_auto_enable()
 
 
 def unregister() -> None:
-    """Take down timers, hooks, handlers, classes, and translations."""
+    """Stop the IME bridge runtime and unregister Blender classes."""
     window_hook.cancel_auto_enable()
     ime_context.unregister_text_draw_handler()
     window_hook.stop_hooks()
-    _unregister_classes(_REGISTERED_CLASSES)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
     i18n.unregister()

@@ -6,7 +6,8 @@ buttons after installation.
 
 ## Layers
 
-- `__init__.py`: add-on lifecycle, registration rollback, and cleanup.
+- `__init__.py`: standard Blender class registration plus runtime startup and
+  cleanup.
 - `preferences/`: add-on preferences and localized preference labels.
 - `core/`: shared models, runtime state, safe cleanup, and message results.
 - `platforms/`: native backend selection plus safe no-op behavior for
